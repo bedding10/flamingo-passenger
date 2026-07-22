@@ -4,7 +4,7 @@ This repository contains the Passenger App only. All CI files and checks are sel
 
 ## Reproducible toolchain
 
-- Node.js `20.15.1`
+- Node.js `20.19.6`
 - npm `10.8.2`
 - Expo SDK `52`
 - React Native `0.76.9`
@@ -44,7 +44,7 @@ Every job uploads `ci-logs/` even when it fails. EAS jobs also upload downloaded
 
 ## Local verification
 
-Use exactly Node 20.15.1 and npm 10.8.2:
+Use exactly Node 20.19.6 and npm 10.8.2:
 
 ```bash
 nvm use

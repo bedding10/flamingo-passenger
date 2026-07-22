@@ -1,7 +1,7 @@
 {
   "scope": "PassengerApp repository only",
-  "requiredRuntime": {"node": "20.15.1", "npm": "10.8.2"},
-  "executionRuntime": {"node": "24.14.1", "npm": "11.11.0"},
+  "requiredRuntime": {"node": "20.19.6", "npm": "10.8.2"},
+  "executionRuntime": {"node": "22.22.2", "npm": "10.8.2"},
   "checks": [
     {"name":"Passenger-only GitLab YAML parse","status":"PASS"},
     {"name":"No external project CI references","status":"PASS"},

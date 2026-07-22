@@ -14,7 +14,7 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 
 default:
-  image: node:20.15.1-bookworm-slim
+  image: node:20.19.6-bookworm-slim
   interruptible: true
   before_script:
     - mkdir -p ci-logs artifacts .npm .expo .eas
