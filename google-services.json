@@ -1,0 +1,99 @@
+{
+  "project_info": {
+    "project_number": "863994471927",
+    "firebase_url": "https://nova-ride-4a1e6-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "nova-ride-4a1e6",
+    "storage_bucket": "nova-ride-4a1e6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:863994471927:android:03de3f6491dc91092d3af2",
+        "android_client_info": {
+          "package_name": "com.novaride.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "863994471927-snngr7h030q4aiuefoctj6r9s61s5533.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.novaride.driver",
+            "certificate_hash": "8674b0baffd78a79b7e0984f812fadb43ab320ab"
+          }
+        },
+        {
+          "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "863994471927-h9io8ard1n432rvk00idql8bgd7nk84s.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.flamingo.passenger"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:863994471927:android:e76edf59d0c48fec2d3af2",
+        "android_client_info": {
+          "package_name": "com.novaride.passenger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "863994471927-mt43ig4chk5vcro1aqrpm55qm6r2pqva.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.novaride.passenger",
+            "certificate_hash": "8674b0baffd78a79b7e0984f812fadb43ab320ab"
+          }
+        },
+        {
+          "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "863994471927-h9io8ard1n432rvk00idql8bgd7nk84s.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.flamingo.passenger"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,29 @@
+import type { LegalDocument, SavedPlaceKind } from "../core/passenger-api";
+
+export type RootStackParamList = {
+  Auth: undefined;
+  CompleteProfile: undefined;
+  Home: undefined;
+  Menu: undefined;
+  Profile: undefined;
+  Trips: undefined;
+  TripDetails: { tripId: string };
+  TripCompletion: { tripId: string };
+  TripPayment: { tripId: string };
+  TripCommunication: { tripId: string };
+  Places: undefined;
+  PlaceEditor: { kind: SavedPlaceKind };
+  Wallet: undefined;
+  Coupons: undefined;
+  Referrals: undefined;
+  Notifications: undefined;
+  Subscriptions: undefined;
+  Support: undefined;
+  SupportTicket: { ticketId: string };
+  Legal: undefined;
+  LegalDocument: { document: LegalDocument };
+  About: undefined;
+  Contact: undefined;
+  Settings: undefined;
+  DeleteAccount: undefined;
+};

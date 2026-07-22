@@ -1,0 +1,134 @@
+stages:
+  - install
+  - validate
+  - expo-doctor
+  - typescript
+  - lint
+  - expo-prebuild
+  - android-preview
+  - android-production
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+default:
+  image: node:20.15.1-bookworm-slim
+  interruptible: true
+  before_script:
+    - mkdir -p ci-logs artifacts .npm .expo .eas
+    - npm install --global npm@10.8.2 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-bootstrap.log"
+    - node --version | tee "ci-logs/${CI_JOB_NAME}-runtime.log"
+    - npm --version | tee -a "ci-logs/${CI_JOB_NAME}-runtime.log"
+  cache:
+    key:
+      files:
+        - package-lock.json
+      prefix: "passenger-node20-npm10"
+    paths:
+      - .npm/
+      - .expo/
+      - .eas/
+      - .cache/expo/
+      - .cache/eas-cli/
+    policy: pull-push
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - ci-logs/
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  NPM_CONFIG_ENGINE_STRICT: "true"
+  EXPO_HOME: "$CI_PROJECT_DIR/.expo"
+  XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
+  EAS_LOCAL_BUILD_WORKINGDIR: "$CI_PROJECT_DIR/.eas"
+  CI: "1"
+
+.npm_ci: &npm_ci
+  - npm ci --prefer-offline 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-ci.log"
+
+install_dependencies:
+  stage: install
+  script:
+    - test -f package-lock.json || { echo "package-lock.json is required" | tee ci-logs/package-lock-missing.log; exit 1; }
+    - npm install --prefer-offline 2>&1 | tee ci-logs/npm-install.log
+    - git diff --exit-code -- package-lock.json
+    - rm -rf node_modules
+    - *npm_ci
+
+validate_project:
+  stage: validate
+  script:
+    - *npm_ci
+    - node scripts/ci/require-env.mjs passenger
+    - npm run quality:gate 2>&1 | tee ci-logs/quality-gate.log
+    - npm run release:validate 2>&1 | tee ci-logs/release-validate.log
+    - npm run config:validate 2>&1 | tee ci-logs/config-validate.log
+    - npm run build:js 2>&1 | tee ci-logs/passenger-export.log
+
+expo_doctor:
+  stage: expo-doctor
+  script:
+    - *npm_ci
+    - npm run expo:check 2>&1 | tee ci-logs/expo-install-check.log
+    - npm run doctor 2>&1 | tee ci-logs/expo-doctor.log
+
+typescript_check:
+  stage: typescript
+  script:
+    - *npm_ci
+    - npm run typecheck 2>&1 | tee ci-logs/typescript.log
+
+lint_check:
+  stage: lint
+  script:
+    - *npm_ci
+    - npm run lint 2>&1 | tee ci-logs/eslint.log
+
+expo_prebuild:
+  stage: expo-prebuild
+  script:
+    - *npm_ci
+    - node scripts/ci/require-env.mjs native-config
+    - FLAMINGO_REQUIRE_NATIVE_CONFIG=1 npm run prebuild:ci 2>&1 | tee ci-logs/expo-prebuild.log
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - ci-logs/
+
+.eas_android: &eas_android
+  resource_group: flamingo-passenger-android
+  script:
+    - *npm_ci
+    - node scripts/ci/require-env.mjs android-build
+    - export EXPO_TOKEN="${EXPO_TOKEN:-$EAS_TOKEN}"
+    - FLAMINGO_REQUIRE_NATIVE_CONFIG=1 npx --no-install eas build --platform android --profile "$EAS_PROFILE" --non-interactive --wait --json 2> "ci-logs/${CI_JOB_NAME}-eas.stderr.log" | tee "ci-logs/${CI_JOB_NAME}-eas-result.json"
+    - node scripts/ci/download-eas-artifact.mjs "ci-logs/${CI_JOB_NAME}-eas-result.json" "artifacts/$ARTIFACT_NAME"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - ci-logs/
+      - artifacts/
+
+android_preview_build:
+  <<: *eas_android
+  stage: android-preview
+  variables:
+    EAS_PROFILE: "preview"
+    ARTIFACT_NAME: "flaminGO-passenger-preview.apk"
+
+android_production_build:
+  <<: *eas_android
+  stage: android-production
+  variables:
+    EAS_PROFILE: "production"
+    ARTIFACT_NAME: "flaminGO-passenger-production.aab"

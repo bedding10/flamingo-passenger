@@ -1,0 +1,22 @@
+{
+  "scope": "PassengerApp repository only",
+  "requiredRuntime": {"node": "20.15.1", "npm": "10.8.2"},
+  "executionRuntime": {"node": "24.14.1", "npm": "11.11.0"},
+  "checks": [
+    {"name":"Passenger-only GitLab YAML parse","status":"PASS"},
+    {"name":"No external project CI references","status":"PASS"},
+    {"name":"JavaScript configuration syntax","status":"PASS"},
+    {"name":"Protected Expo config injection","status":"PASS"},
+    {"name":"Dependency/plugin static matrix","status":"PASS"},
+    {"name":"package-lock.json generation","status":"BLOCKED","reason":"ENOTFOUND registry.npmjs.org"},
+    {"name":"npm install","status":"BLOCKED","reason":"npm Registry unavailable"},
+    {"name":"npm ci","status":"BLOCKED","reason":"package-lock.json is absent"},
+    {"name":"Expo Doctor","status":"BLOCKED","reason":"project dependencies are not installed"},
+    {"name":"TypeScript","status":"BLOCKED","reason":"project dependencies are not installed"},
+    {"name":"Lint","status":"BLOCKED","reason":"project dependencies are not installed"},
+    {"name":"Expo Prebuild","status":"BLOCKED","reason":"project dependencies are not installed"},
+    {"name":"EAS Preview APK","status":"BLOCKED","reason":"EAS CLI dependencies/credentials and network unavailable"},
+    {"name":"EAS Production AAB","status":"BLOCKED","reason":"EAS CLI dependencies/credentials and network unavailable"}
+  ],
+  "decision": "NOT_BUILD_READY_100_PERCENT"
+}

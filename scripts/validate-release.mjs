@@ -1,0 +1,14 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+const root=resolve(new URL("..",import.meta.url).pathname);const errors=[];const pass=[];
+const check=(ok,label)=>{(ok?pass:errors).push(label)};const json=(p)=>JSON.parse(readFileSync(join(root,p),"utf8"));
+const app=json("app.json").expo,pkg=json("package.json");
+check(app.version===pkg.version,"app and package versions match");check(Number(app.android?.versionCode)>0,"Android versionCode set");check(/^\d+$/.test(app.ios?.buildNumber??""),"iOS buildNumber set");check(app.jsEngine==="hermes","Hermes enabled");
+for(const file of ["google-services.json","GoogleService-Info.plist","assets/app-icon.png","assets/adaptive-icon.png","assets/notification-icon.png"])check(existsSync(join(root,file)),`${file} exists`);
+const png=(p)=>{const b=readFileSync(join(root,p));return{w:b.readUInt32BE(16),h:b.readUInt32BE(20),color:b[25]}};
+const icon=png("assets/app-icon.png"),adaptive=png("assets/adaptive-icon.png"),notification=png("assets/notification-icon.png");check(icon.w===1024&&icon.h===1024&&![4,6].includes(icon.color),"iOS icon is 1024 RGB without alpha");check(adaptive.w===1024&&adaptive.h===1024,"adaptive icon is 1024 square");check(notification.w===notification.h&&[4,6].includes(notification.color),"notification icon has alpha");
+const google=json("google-services.json");check(google.client?.some((c)=>c.client_info?.android_client_info?.package_name===app.android.package),"Android Firebase package matches");const plist=readFileSync(join(root,"GoogleService-Info.plist"),"utf8");check(plist.includes(`<string>${app.ios.bundleIdentifier}</string>`),"iOS Firebase bundle matches");
+const api=process.env.EXPO_PUBLIC_API_URL??"";check(/^https:\/\//.test(api),"production API URL uses HTTPS");
+const assetFiles=readdirSync(join(root,"assets"));check(!assetFiles.some((f)=>/^vehicle-.*\.(png|webp|jpg)$/i.test(f)),"vehicle images are not bundled");
+const source=[];const walk=(dir)=>{for(const n of readdirSync(dir,{withFileTypes:true})){const p=join(dir,n.name);if(n.isDirectory())walk(p);else if(/\.(ts|tsx)$/.test(n.name))source.push(readFileSync(p,"utf8"))}};walk(join(root,"src"));const all=source.join("\n");check(!/example\.com|TODO|FIXME|FIREBASE_EMAIL_PROVIDER_CONFIGURATION_REQUIRED/i.test(all),"no placeholders or unfinished markers");check(!/console\.(log|debug)\(/.test(all),"no application debug logging");
+console.log(JSON.stringify({passed:pass,failed:errors},null,2));if(errors.length)process.exit(1);

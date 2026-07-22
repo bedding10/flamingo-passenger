@@ -1,0 +1,17 @@
+node_modules/
+.npm/
+.expo/
+.eas/
+dist/
+android/
+ios/
+ci-logs/
+artifacts/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
