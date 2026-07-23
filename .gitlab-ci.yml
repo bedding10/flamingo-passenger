@@ -1,135 +1,107 @@
-stages:
-  - install
-  - validate
-  - expo-doctor
-  - typescript
-  - lint
-  - expo-prebuild
-  - android-preview
-  - android-production
+# ---------------------------------------------------------------------------
+# flaminGO Passenger - DEVELOPMENT pipeline
+#
+# During development we want ONE thing only:
+#   every push -> one "build" job -> installable Android APK artifact.
+#
+# No lint / typecheck / expo-doctor / quality-gate / release-validate / prebuild
+# runs here. None of those tools or scripts are deleted: quality-gate.mjs,
+# require-env.mjs, validate-release.mjs and every package.json script stay in the
+# repo untouched, ready for the production pipeline. They are simply NOT invoked
+# by this dev pipeline.
+#
+# Production settings (AAB / Google Play) are preserved below as a disabled job
+# (rules: when: never). Re-enable them later by swapping the rule back to
+# `- if: '$CI_COMMIT_BRANCH == "main"'` (see the commented block).
+#
+# The actual Android build runs on EAS Build (Expo cloud); this runner only
+# triggers the build, waits, and downloads the APK, so no Android SDK is needed.
+# ---------------------------------------------------------------------------
 
+stages:
+  - build
+
+# A pipeline runs on every push (any branch) and on manual/web runs.
+# Merge-request pipelines are disabled to avoid duplicate builds.
 workflow:
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: always
 
-default:
+variables:
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  # eas.json requires eas-cli >=21.0.3, newer than the app's Node 20 engine pin;
+  # relax engine-strict just for the global CLI install on the runner.
+  npm_config_engine_strict: "false"
+  CI: "1"
+
+# ===========================================================================
+# ACTIVE (development): the ONLY job that runs on push. Builds an APK.
+# ===========================================================================
+android_apk:
+  stage: build
   image: node:20.19.6-bookworm-slim
   interruptible: true
+  # Serialize EAS builds so concurrent pushes don't collide on the same project.
+  resource_group: flamingo-passenger-android
   before_script:
-    - mkdir -p ci-logs artifacts .npm .expo .eas
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git > /dev/null
-    - npm install --global npm@10.8.2 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-bootstrap.log"
-    - node --version | tee "ci-logs/${CI_JOB_NAME}-runtime.log"
-    - npm --version | tee -a "ci-logs/${CI_JOB_NAME}-runtime.log"
-  cache:
-    key:
-      files:
-        - package-lock.json
-      prefix: "passenger-node20-npm10"
-    paths:
-      - .npm/
-      - .expo/
-      - .eas/
-      - .cache/expo/
-      - .cache/eas-cli/
-    policy: pull-push
+    - mkdir -p ci-logs artifacts
+    # Only the EAS CLI is needed to trigger a cloud build (not the full app deps).
+    - npm install --global eas-cli@latest 2>&1 | tee ci-logs/eas-cli-install.log
+  script:
+    # Accept either EXPO_TOKEN or EAS_TOKEN as the Expo access token.
+    - export EXPO_TOKEN="${EXPO_TOKEN:-$EAS_TOKEN}"
+    # profile "preview" is configured in eas.json to output buildType: apk.
+    - eas build --platform android --profile preview --non-interactive --wait --json 2> ci-logs/eas.stderr.log | tee ci-logs/eas-result.json
+    # Download the finished APK from the EAS artifact URL into artifacts/.
+    - node scripts/ci/download-eas-artifact.mjs ci-logs/eas-result.json artifacts/flaminGO-passenger.apk
   artifacts:
+    name: "flaminGO-passenger-apk-$CI_COMMIT_SHORT_SHA"
     when: always
     expire_in: 30 days
     paths:
+      - artifacts/
       - ci-logs/
 
-variables:
-  npm_config_cache: "$CI_PROJECT_DIR/.npm"
-  npm_config_audit: "false"
-  npm_config_fund: "false"
-  NPM_CONFIG_ENGINE_STRICT: "true"
-  EXPO_HOME: "$CI_PROJECT_DIR/.expo"
-  XDG_CACHE_HOME: "$CI_PROJECT_DIR/.cache"
-  EAS_LOCAL_BUILD_WORKINGDIR: "$CI_PROJECT_DIR/.eas"
-  CI: "1"
-
-.npm_ci: &npm_ci
-  - npm ci --prefer-offline 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-ci.log"
-
-install_dependencies:
-  stage: install
-  script:
-    - test -f package-lock.json || { echo "package-lock.json is required" | tee ci-logs/package-lock-missing.log; exit 1; }
-    - npm install --prefer-offline 2>&1 | tee ci-logs/npm-install.log
-    - git diff --exit-code -- package-lock.json
-    - rm -rf node_modules
-    - *npm_ci
-
-validate_project:
-  stage: validate
-  script:
-    - *npm_ci
-    - node scripts/ci/require-env.mjs passenger
-    - npm run quality:gate 2>&1 | tee ci-logs/quality-gate.log
-    - npm run release:validate 2>&1 | tee ci-logs/release-validate.log
-    - npm run config:validate 2>&1 | tee ci-logs/config-validate.log
-    - npm run build:js 2>&1 | tee ci-logs/passenger-export.log
-
-expo_doctor:
-  stage: expo-doctor
-  script:
-    - *npm_ci
-    - npm run expo:check 2>&1 | tee ci-logs/expo-install-check.log
-    - npm run doctor 2>&1 | tee ci-logs/expo-doctor.log
-
-typescript_check:
-  stage: typescript
-  script:
-    - *npm_ci
-    - npm run typecheck 2>&1 | tee ci-logs/typescript.log
-
-lint_check:
-  stage: lint
-  script:
-    - *npm_ci
-    - npm run lint 2>&1 | tee ci-logs/eslint.log
-
-expo_prebuild:
-  stage: expo-prebuild
-  script:
-    - *npm_ci
-    - node scripts/ci/require-env.mjs native-config
-    - FLAMINGO_REQUIRE_NATIVE_CONFIG=1 npm run prebuild:ci 2>&1 | tee ci-logs/expo-prebuild.log
-  artifacts:
-    when: always
-    expire_in: 7 days
-    paths:
-      - ci-logs/
-
-.eas_android: &eas_android
+# ===========================================================================
+# PRESERVED but DISABLED (production). Kept intact for the future production
+# pipeline; NOT deleted. It never runs today because of `rules: when: never`.
+#
+# To re-enable production AAB builds later, replace the `rules` block below with:
+#   rules:
+#     - if: '$CI_COMMIT_BRANCH == "main"'
+# (and provide the protected CI variables checked by scripts/ci/require-env.mjs:
+#  EAS_PROJECT_ID, EXPO_PUBLIC_API_URL, GOOGLE_MAPS_ANDROID_API_KEY,
+#  GOOGLE_MAPS_IOS_API_KEY, EXPO_TOKEN/EAS_TOKEN).
+# ===========================================================================
+android_production_build:
+  stage: build
+  image: node:20.19.6-bookworm-slim
   resource_group: flamingo-passenger-android
+  rules:
+    - when: never   # disabled during development
+  before_script:
+    - mkdir -p ci-logs artifacts .npm
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git > /dev/null
+    - npm install --global npm@10.8.2 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-bootstrap.log"
+  variables:
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+    EAS_PROFILE: "production"
+    ARTIFACT_NAME: "flaminGO-passenger-production.aab"
   script:
-    - *npm_ci
+    - npm ci --prefer-offline 2>&1 | tee "ci-logs/${CI_JOB_NAME}-npm-ci.log"
     - node scripts/ci/require-env.mjs android-build
     - export EXPO_TOKEN="${EXPO_TOKEN:-$EAS_TOKEN}"
     - FLAMINGO_REQUIRE_NATIVE_CONFIG=1 npx --no-install eas build --platform android --profile "$EAS_PROFILE" --non-interactive --wait --json 2> "ci-logs/${CI_JOB_NAME}-eas.stderr.log" | tee "ci-logs/${CI_JOB_NAME}-eas-result.json"
     - node scripts/ci/download-eas-artifact.mjs "ci-logs/${CI_JOB_NAME}-eas-result.json" "artifacts/$ARTIFACT_NAME"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
   artifacts:
     when: always
     expire_in: 90 days
     paths:
       - ci-logs/
       - artifacts/
-
-android_preview_build:
-  <<: *eas_android
-  stage: android-preview
-  variables:
-    EAS_PROFILE: "preview"
-    ARTIFACT_NAME: "flaminGO-passenger-preview.apk"
-
-android_production_build:
-  <<: *eas_android
-  stage: android-production
-  variables:
-    EAS_PROFILE: "production"
-    ARTIFACT_NAME: "flaminGO-passenger-production.aab"
