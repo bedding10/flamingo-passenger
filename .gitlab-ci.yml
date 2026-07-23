@@ -28,6 +28,7 @@ android_apk:
     - apt-get install -y git
     - mkdir -p ci-logs artifacts
     - npm install -g eas-cli@latest
+    - npm ci
 
   script:
     - export EXPO_TOKEN="${EXPO_TOKEN:-$EAS_TOKEN}"
