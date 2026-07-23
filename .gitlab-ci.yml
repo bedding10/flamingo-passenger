@@ -56,8 +56,25 @@ android_apk:
   script:
     # Accept either EXPO_TOKEN or EAS_TOKEN as the Expo access token.
     - export EXPO_TOKEN="${EXPO_TOKEN:-$EAS_TOKEN}"
+    # Fail fast with a clear message if no Expo token is configured.
+    - |
+      if [ -z "${EXPO_TOKEN:-}" ]; then
+        echo "ERROR: neither EXPO_TOKEN nor EAS_TOKEN is set."
+        echo "Add EXPO_TOKEN in GitLab > Settings > CI/CD > Variables"
+        echo "(mark it as NOT protected, or protect the branch you push to)."
+        exit 1
+      fi
+    # Verify the token is valid; stop the pipeline immediately if it is not.
+    - echo "Checking Expo authentication..."
+    - |
+      if ! eas whoami; then
+        echo "ERROR: eas whoami failed - the Expo token is missing or invalid."
+        echo "Check the EXPO_TOKEN (or EAS_TOKEN) CI/CD variable."
+        exit 1
+      fi
     # profile "preview" is configured in eas.json to output buildType: apk.
-    - eas build --platform android --profile preview --non-interactive --wait --json 2> ci-logs/eas.stderr.log | tee ci-logs/eas-result.json
+    # stderr is NOT redirected, so any EAS error shows directly in the GitLab log.
+    - eas build --platform android --profile preview --non-interactive --wait --json 1> ci-logs/eas-result.json
     # Download the finished APK from the EAS artifact URL into artifacts/.
     - node scripts/ci/download-eas-artifact.mjs ci-logs/eas-result.json artifacts/flaminGO-passenger.apk
   artifacts:
