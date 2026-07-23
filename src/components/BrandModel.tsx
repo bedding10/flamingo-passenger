@@ -2,9 +2,10 @@ import React, { useEffect, useRef } from "react";
 import { Animated, View } from "react-native";
 import { GLView } from "expo-gl";
 import type { ExpoWebGLRenderingContext } from "expo-gl";
-import { Renderer, loadAsync } from "expo-three";
 import * as THREE from "three";
 import { managedAsset } from "../core/assets";
+import { createExpoGLRenderer, endExpoGLFrame } from "../three/expoGLRenderer";
+import { loadGLTFAsync } from "../three/loadGLTF";
 
 function disposeObject(object: THREE.Object3D) {
   object.traverse((child) => {
@@ -22,10 +23,12 @@ function disposeObject(object: THREE.Object3D) {
     }
   });
 }
+
 export function BrandModel() {
   const entrance = useRef(new Animated.Value(0)).current;
   const alive = useRef(true);
   const cleanup = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     alive.current = true;
     Animated.spring(entrance, {
@@ -40,11 +43,13 @@ export function BrandModel() {
       cleanup.current = null;
     };
   }, [entrance]);
+
   const onContext = async (gl: ExpoWebGLRenderingContext) => {
     cleanup.current?.();
-    const renderer = new Renderer({ gl });
-    renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+
+    const renderer = createExpoGLRenderer(gl);
     renderer.setClearColor(0xffffff, 0);
+
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       38,
@@ -57,24 +62,36 @@ export function BrandModel() {
     const light = new THREE.DirectionalLight(0xffffff, 3);
     light.position.set(3, 4, 5);
     scene.add(light);
+
     const asset = managedAsset("brand.logo.3d");
     if (!asset) {
       renderer.dispose();
       return;
     }
-    const loaded = (await loadAsync(asset.localUri)) as
-      THREE.Object3D | { scene?: THREE.Object3D };
-    const object = loaded instanceof THREE.Object3D ? loaded : loaded.scene;
-    if (!object) {
+
+    let object: THREE.Object3D;
+    try {
+      const gltf = await loadGLTFAsync(asset.localUri);
+      object = gltf.scene;
+    } catch {
       renderer.dispose();
       return;
     }
+
+    // The component may have unmounted while the model was loading.
+    if (!alive.current) {
+      disposeObject(object);
+      renderer.dispose();
+      return;
+    }
+
     const box = new THREE.Box3().setFromObject(object),
       size = box.getSize(new THREE.Vector3()),
       center = box.getCenter(new THREE.Vector3());
     object.position.sub(center);
     object.scale.setScalar(2.4 / Math.max(size.x, size.y, size.z));
     scene.add(object);
+
     const clock = new THREE.Clock();
     let frame = 0;
     const stop = () => {
@@ -83,15 +100,17 @@ export function BrandModel() {
       renderer.dispose();
     };
     cleanup.current = stop;
+
     const draw = () => {
       if (!alive.current) return;
       object.rotation.y += clock.getDelta() * 0.32;
       renderer.render(scene, camera);
-      gl.endFrameEXP();
+      endExpoGLFrame(gl);
       frame = requestAnimationFrame(draw);
     };
     draw();
   };
+
   return (
     <Animated.View
       style={{
