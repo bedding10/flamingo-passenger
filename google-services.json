@@ -59,11 +59,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "863994471927-cbrc8najh25ai3b9ehr1cq6kctcarrdi.apps.googleusercontent.com",
+          "client_id": "863994471927-mt43ig4chk5vcro1aqrpm55qm6r2pqva.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.novaride.passenger",
-            "certificate_hash": "0e6f66bb813be2e188d8b830e944d559a48a519f"
+            "certificate_hash": "8674b0baffd78a79b7e0984f812fadb43ab320ab"
           }
         },
         {

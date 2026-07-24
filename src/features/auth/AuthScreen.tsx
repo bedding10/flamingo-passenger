@@ -26,12 +26,11 @@ import {
   completeEmailLink,
   confirmPhone,
   requestPhone,
-  signInWithGoogle,
 } from "./firebase";
 import { useSession } from "../../core/session-store";
 
 type Mode = "entry" | "phone" | "otp";
-type Busy = null | "phone" | "otp" | "google";
+type Busy = null | "phone" | "otp";
 
 export function AuthScreen() {
   const [msg, setMsg] = useState<Record<string, string>>({});
@@ -124,14 +123,6 @@ export function AuthScreen() {
                   setError(null);
                   setMode("phone");
                 }}
-              />
-              <GoogleButton
-                label={tr(msg, "auth.continueGoogle")}
-                loading={busy === "google"}
-                disabled={!!busy}
-                onPress={guard("google", async () => {
-                  await accept(await signInWithGoogle());
-                })}
               />
               <Text style={s.legal}>{tr(msg, "auth.legalHint")}</Text>
             </Animated.View>

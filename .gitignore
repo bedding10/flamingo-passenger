@@ -15,4 +15,3 @@ artifacts/
 *.p12
 *.jks
 *.keystore
-app.apk
