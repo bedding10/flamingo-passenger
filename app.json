@@ -24,6 +24,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "flaminGO uses your location to set pickup and show ride options.",
         "NSPhotoLibraryUsageDescription": "flaminGO uses your selected photo for your passenger profile.",
+        "NSCameraUsageDescription": "flaminGO uses your camera to take a selfie for your passenger profile.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "buildNumber": "1"
@@ -34,7 +35,8 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "CAMERA"
       ],
       "intentFilters": [
         {
@@ -63,7 +65,13 @@
     "plugins": [
       "@react-native-firebase/app",
       "expo-secure-store",
-      "expo-image-picker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "flaminGO uses your selected photo for your passenger profile.",
+          "cameraPermission": "flaminGO uses your camera to take a selfie for your passenger profile."
+        }
+      ],
       "expo-location",
       "@react-native-firebase/crashlytics",
       [

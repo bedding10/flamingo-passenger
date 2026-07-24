@@ -85,6 +85,12 @@ export const FALLBACK_MESSAGES: Record<string, string> = {
   "profile.email": "البريد الإلكتروني",
   "profile.choosePhoto": "اختر صورة",
   "profile.photoSelected": "تم اختيار الصورة",
+  "profile.photoSourceTitle": "صورة الملف الشخصي",
+  "profile.fromLibrary": "اختيار من الهاتف",
+  "profile.takeSelfie": "التقاط سيلفي",
+  "profile.cameraDenied": "لم يتم منح إذن الكاميرا. فعّله من إعدادات الهاتف.",
+  "profile.photoUploadFailed": "تعذّر رفع الصورة، حاول مرة أخرى.",
+  "profile.saveFailed": "تعذّر حفظ الملف الشخصي، حاول مرة أخرى.",
 
   // trips
   "trips.title": "رحلاتي",
