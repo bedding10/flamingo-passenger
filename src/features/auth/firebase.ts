@@ -18,8 +18,34 @@ type PublicConfig = {
     };
   };
 };
+// Firebase's SMS region policy matches on the COUNTRY of the phone number as
+// parsed from E.164. If the number is not in E.164 (no leading "+<country>"),
+// Firebase cannot map it to Algeria (+213) and rejects with error 17006
+// ("SMS unable to be sent until this region enabled by the app developer"),
+// even when Algeria IS allow-listed. The old code sent the raw text verbatim,
+// so a user typing a local number like "0555 12 34 56" was never recognised as
+// +213. normalizeE164 guarantees an E.164 number with an explicit country.
+export function normalizeE164(input: string, defaultCountry = "213"): string {
+  const digitsAndPlus = input.replace(/[^\d+]/g, "");
+  let value: string;
+  if (digitsAndPlus.startsWith("+")) {
+    value = digitsAndPlus;
+  } else if (digitsAndPlus.startsWith("00")) {
+    value = `+${digitsAndPlus.slice(2)}`;
+  } else if (digitsAndPlus.startsWith(defaultCountry)) {
+    value = `+${digitsAndPlus}`;
+  } else if (digitsAndPlus.startsWith("0")) {
+    // National trunk format (0 + subscriber number) -> +<country><subscriber>.
+    value = `+${defaultCountry}${digitsAndPlus.slice(1)}`;
+  } else {
+    // Bare national subscriber number (e.g. "555123456").
+    value = `+${defaultCountry}${digitsAndPlus}`;
+  }
+  if (!/^\+\d{8,15}$/.test(value)) throw Error("INVALID_PHONE");
+  return value;
+}
 export async function requestPhone(phone: string) {
-  return auth().signInWithPhoneNumber(phone.trim());
+  return auth().signInWithPhoneNumber(normalizeE164(phone));
 }
 export async function confirmPhone(
   confirmation: FirebaseAuthTypes.ConfirmationResult,

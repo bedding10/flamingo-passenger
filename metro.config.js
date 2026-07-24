@@ -5,25 +5,45 @@ const config = getDefaultConfig(__dirname);
 // Enable package.json "exports" map resolution. Needed so
 //   import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 // resolves via three's exports map ("./examples/jsm/*": "./examples/jsm/*").
-// three's own entry point ("." -> import/require) is unaffected by anything
-// below: it has no "browser"/"default" keys, so it always resolves through
-// the "require" condition Metro adds automatically.
 config.resolver.unstable_enablePackageExports = true;
 
-// With package exports enabled, some libraries (axios among them) expose
-// separate "browser" vs Node ("default") builds in their exports map, e.g.:
-//   "exports": { ".": { "browser": {...}, "default": "./dist/node/axios.cjs" } }
-// Metro only picks the "browser" build if "browser" is in the accepted
-// condition set -- otherwise it falls through to "default", which is the
-// Node build and pulls in Node core modules ("url", "http", ...) that don't
-// exist in React Native, breaking the bundle with errors like:
-//   Unable to resolve module "url" from axios/dist/node/axios.cjs
+// ---------------------------------------------------------------------------
+// CRITICAL FIX (was the primary cause of the "unusable UI").
 //
-// This does NOT require any Node polyfills and does NOT touch three's
-// resolution above -- three's exports map has no "browser"/"default" keys
-// to be affected by this.
-config.resolver.unstable_conditionNames = Array.from(
+// The previous config added "browser" to the GLOBAL condition set:
+//   config.resolver.unstable_conditionNames = [...(...), "browser"];
+//
+// With package exports enabled, that forces EVERY dependency whose exports map
+// exposes a "browser" build to resolve to its WEB bundle on the device, e.g.
+// react-native-reanimated, react-native-safe-area-context, react-native-maps,
+// @shopify/flash-list, and more. Those web builds run without crashing but do
+// nothing native: reanimated layout animations (FadeIn/SlideIn...) never run,
+// so "entering" views stay at opacity 0 -> content and bottom sheets look
+// invisible/blank; maps, lists, images and the GL surface silently fail to
+// draw. That is exactly the reported symptom set (invisible UI, blank screens,
+// dead 3D/images, "frozen" feel) WITH NO red screen, because nothing throws.
+//
+// The ONLY dependency here that genuinely needs its "browser" build in React
+// Native is axios (its "default"/Node build imports Node core modules like
+// "url"/"http" that don't exist in RN). So we scope the "browser" condition to
+// axios ONLY, via resolveRequest, and leave every other package on its correct
+// native / react-native build.
+// ---------------------------------------------------------------------------
+const browserConditions = Array.from(
   new Set([...(config.resolver.unstable_conditionNames ?? []), "browser"]),
 );
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === "axios" || moduleName.startsWith("axios/")) {
+    // context.resolveRequest is Metro's default (upstream) resolver, so this
+    // does not recurse into this custom function.
+    return context.resolveRequest(
+      { ...context, unstable_conditionNames: browserConditions },
+      moduleName,
+      platform,
+    );
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 module.exports = config;

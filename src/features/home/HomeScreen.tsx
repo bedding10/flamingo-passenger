@@ -31,6 +31,7 @@ import type {
 } from "../../core/contracts";
 import { managedAsset, syncManagedAssets } from "../../core/assets";
 import { loadTranslations, tr } from "../../core/i18n";
+import { reportError } from "../../core/observability";
 import { useSession } from "../../core/session-store";
 import { connectTrip, type TripEvent } from "../trip/realtime";
 import { passengerApi } from "../trip/trip-api";
@@ -82,20 +83,35 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   useEffect(() => {
     loadTranslations(profile?.locale ?? "ar")
       .then(setMessages)
-      .catch(() => undefined);
+      .catch((e) => reportError(e, "home.i18n"));
     syncManagedAssets()
       .then(() => setAssetRevision((x) => x + 1))
-      .catch(() => undefined);
+      .catch((e) => reportError(e, "home.assets"));
     void (async () => {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") return;
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setPickup({
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-      });
+      // Location must never leave the screen stuck. Previously, a denied
+      // permission `return`ed early (and a thrown getCurrentPositionAsync was
+      // swallowed), so `pickup` stayed null forever and the render guard
+      // `if (!pickup) return <loading/>` showed an infinite spinner = "blank
+      // screen / frozen navigation". Now any denial or error falls back to a
+      // default region so the map and UI always become interactive.
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status === "granted") {
+          const position = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setPickup({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+          return;
+        }
+      } catch (e) {
+        reportError(e, "home.location");
+      }
+      // Fallback (Algiers city centre); the passenger can move the pickup via
+      // the search sheet.
+      setPickup((prev) => prev ?? { lat: 36.7538, lng: 3.0588 });
     })();
   }, [profile?.locale]);
 

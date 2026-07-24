@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { Linking, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import { BrandModel } from "../../components/BrandModel";
 import { syncManagedAssets } from "../../core/assets";
 import { loadTranslations, tr } from "../../core/i18n";
+import { reportError } from "../../core/observability";
 import {
   completeEmailLink,
   confirmPhone,
@@ -20,12 +28,30 @@ export function AuthScreen() {
     [mode, setMode] = useState<Mode>("entry"),
     [confirmation, setConfirmation] =
       useState<FirebaseAuthTypes.ConfirmationResult | null>(null),
-    [assetsReady, setAssetsReady] = useState(false);
+    [assetsReady, setAssetsReady] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
   const accept = useSession((s) => s.accept);
+  // Every auth action is async and network-bound (Firebase phone/email). They
+  // used to run as bare `onPress={async () => {...}}` with no try/catch, so a
+  // rejected promise vanished silently and the screen appeared to do nothing.
+  // guard() disables the button while running and surfaces failures as a
+  // visible, logged error instead of a silent no-op.
+  const guard = (fn: () => Promise<void>) => () => {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    void fn()
+      .catch((e) => {
+        reportError(e, "auth.action");
+        setError(tr(msg, "common.error"));
+      })
+      .finally(() => setBusy(false));
+  };
   useEffect(() => {
     loadTranslations("ar")
       .then(setMsg)
-      .catch(() => {});
+      .catch((e) => reportError(e, "auth.i18n"));
     syncManagedAssets()
       .then(() => setAssetsReady(true))
       .catch(() => setAssetsReady(true));
@@ -33,8 +59,12 @@ export function AuthScreen() {
   useEffect(() => {
     const h = async (u: string | null) => {
       if (!u) return;
-      const s = await completeEmailLink(u);
-      if (s) await accept(s);
+      try {
+        const s = await completeEmailLink(u);
+        if (s) await accept(s);
+      } catch (e) {
+        reportError(e, "auth.emailLink");
+      }
     };
     void Linking.getInitialURL().then(h);
     const x = Linking.addEventListener("url", (e) => void h(e.url));
@@ -64,6 +94,11 @@ export function AuthScreen() {
         {assetsReady ? <BrandModel /> : null}
       </View>
       <View style={{ gap: 12 }}>
+        {error ? (
+          <Text style={{ color: "#B42318", fontSize: 14, fontWeight: "600" }}>
+            {error}
+          </Text>
+        ) : null}
         {mode === "entry" ? (
           <>
             <Button
@@ -86,10 +121,11 @@ export function AuthScreen() {
             />
             <Button
               title={tr(msg, "common.continue")}
-              onPress={async () => {
+              loading={busy}
+              onPress={guard(async () => {
                 setConfirmation(await requestPhone(phone));
                 setMode("otp");
-              }}
+              })}
             />
             <Back msg={msg} onPress={() => setMode("entry")} />
           </>
@@ -103,9 +139,10 @@ export function AuthScreen() {
             />
             <Button
               title={tr(msg, "auth.verifyOtp")}
-              onPress={async () =>
-                accept(await confirmPhone(confirmation, code))
-              }
+              loading={busy}
+              onPress={guard(async () => {
+                await accept(await confirmPhone(confirmation, code));
+              })}
             />
             <Back msg={msg} onPress={() => setMode("phone")} />
           </>
@@ -120,10 +157,11 @@ export function AuthScreen() {
             />
             <Button
               title={tr(msg, "auth.sendEmailLink")}
-              onPress={async () => {
+              loading={busy}
+              onPress={guard(async () => {
                 await sendEmailLink(email);
                 setMode("sent");
-              }}
+              })}
             />
             <Back msg={msg} onPress={() => setMode("entry")} />
           </>
@@ -147,14 +185,17 @@ function Button({
   title,
   onPress,
   inverse = false,
+  loading = false,
 }: {
   title: string;
   onPress: () => void;
   inverse?: boolean;
+  loading?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
+      disabled={loading}
       style={{
         height: 56,
         borderRadius: 14,
@@ -163,17 +204,22 @@ function Button({
         backgroundColor: inverse ? "#fff" : "#111",
         borderWidth: 1,
         borderColor: "#111",
+        opacity: loading ? 0.6 : 1,
       }}
     >
-      <Text
-        style={{
-          fontSize: 16,
-          fontWeight: "700",
-          color: inverse ? "#111" : "#fff",
-        }}
-      >
-        {title}
-      </Text>
+      {loading ? (
+        <ActivityIndicator color={inverse ? "#111" : "#fff"} />
+      ) : (
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: "700",
+            color: inverse ? "#111" : "#fff",
+          }}
+        >
+          {title}
+        </Text>
+      )}
     </Pressable>
   );
 }

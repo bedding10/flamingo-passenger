@@ -4,6 +4,8 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { RootNavigator } from "./navigation/RootNavigator";
 import { useSession } from "./core/session-store";
 import { syncManagedAssets } from "./core/assets";
@@ -57,11 +59,23 @@ export default function App() {
       cleanup?.();
     };
   }, [userId]);
+  // GestureHandlerRootView must wrap the whole app (index.js already imports
+  // react-native-gesture-handler): @react-navigation/native-stack +
+  // react-native-screens rely on it, and without it on Android gesture-driven
+  // touch handling (button presses, back gestures) is unreliable, which looked
+  // like "buttons do nothing / navigation frozen". SafeAreaProvider is required
+  // because ~20 screens read insets via SafeAreaView from
+  // react-native-safe-area-context; without the provider those insets never
+  // resolve and content can be pushed off-screen / collapsed.
   return (
-    <AppErrorBoundary>
-      <QueryClientProvider client={client}>
-        <RootNavigator />
-      </QueryClientProvider>
-    </AppErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AppErrorBoundary>
+          <QueryClientProvider client={client}>
+            <RootNavigator />
+          </QueryClientProvider>
+        </AppErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
