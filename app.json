@@ -62,12 +62,6 @@
     },
     "plugins": [
       "@react-native-firebase/app",
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps.863994471927-h9io8ard1n432rvk00idql8bgd7nk84s"
-        }
-      ],
       "expo-secure-store",
       "expo-image-picker",
       "expo-location",
