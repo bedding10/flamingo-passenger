@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import { Animated, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Image, View } from "react-native";
 import { GLView } from "expo-gl";
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import * as THREE from "three";
@@ -12,6 +12,9 @@ import { loadGLTFAsync, type GLTFSource } from "../three/loadGLTF";
 // (offline, and before the remote managed-asset manifest has synced). A managed
 // remote override, when present, takes precedence.
 const BUNDLED_BRAND_MODEL = require("../../assets/brand-logo.glb") as number;
+// 2D fallback shown if the GL context or model ever fails, so the hero area is
+// never an empty circle.
+const BRAND_FALLBACK_IMAGE = require("../../assets/brand-master-logo.png") as number;
 
 function disposeObject(object: THREE.Object3D) {
   object.traverse((child) => {
@@ -34,6 +37,7 @@ export function BrandModel() {
   const entrance = useRef(new Animated.Value(0)).current;
   const alive = useRef(true);
   const cleanup = useRef<(() => void) | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     alive.current = true;
@@ -53,7 +57,14 @@ export function BrandModel() {
   const onContext = async (gl: ExpoWebGLRenderingContext) => {
     cleanup.current?.();
 
-    const renderer = createExpoGLRenderer(gl);
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = createExpoGLRenderer(gl);
+    } catch (error) {
+      reportError(error, "brand.model.context");
+      if (alive.current) setFailed(true);
+      return;
+    }
     renderer.setClearColor(0xffffff, 0);
 
     const scene = new THREE.Scene();
@@ -79,6 +90,7 @@ export function BrandModel() {
     } catch (error) {
       reportError(error, "brand.model");
       renderer.dispose();
+      if (alive.current) setFailed(true);
       return;
     }
 
@@ -131,7 +143,15 @@ export function BrandModel() {
       }}
     >
       <View style={{ flex: 1 }}>
-        <GLView style={{ flex: 1 }} onContextCreate={onContext} />
+        {failed ? (
+          <Image
+            source={BRAND_FALLBACK_IMAGE}
+            resizeMode="contain"
+            style={{ flex: 1, width: "100%", height: "100%" }}
+          />
+        ) : (
+          <GLView style={{ flex: 1 }} onContextCreate={onContext} />
+        )}
       </View>
     </Animated.View>
   );

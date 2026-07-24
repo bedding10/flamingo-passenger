@@ -61,12 +61,11 @@
       "versionCode": 1
     },
     "plugins": [
-  "@react-native-firebase/app",
-  "@react-native-google-signin/google-signin",
-  "expo-secure-store",
-  "expo-image-picker",
-  "expo-location",
-  "@react-native-firebase/crashlytics",
+      "@react-native-firebase/app",
+      "expo-secure-store",
+      "expo-image-picker",
+      "expo-location",
+      "@react-native-firebase/crashlytics",
       [
         "expo-build-properties",
         {
