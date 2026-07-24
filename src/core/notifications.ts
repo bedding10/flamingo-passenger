@@ -1,5 +1,11 @@
-import messaging, {
-  FirebaseMessagingTypes,
+import {
+  getMessaging,
+  requestPermission,
+  registerDeviceForRemoteMessages,
+  getToken,
+  onTokenRefresh,
+  deleteToken,
+  AuthorizationStatus,
 } from "@react-native-firebase/messaging";
 import { PermissionsAndroid, Platform } from "react-native";
 import { api } from "./api";
@@ -12,10 +18,10 @@ async function permissionGranted() {
       )) === PermissionsAndroid.RESULTS.GRANTED
     );
   }
-  const status = await messaging().requestPermission();
+  const status = await requestPermission(getMessaging());
   return (
-    status === FirebaseMessagingTypes.AuthorizationStatus.AUTHORIZED ||
-    status === FirebaseMessagingTypes.AuthorizationStatus.PROVISIONAL
+    status === AuthorizationStatus.AUTHORIZED ||
+    status === AuthorizationStatus.PROVISIONAL
   );
 }
 async function saveToken(token: string) {
@@ -23,21 +29,19 @@ async function saveToken(token: string) {
 }
 export async function registerNotifications() {
   if (!(await permissionGranted())) return () => undefined;
-  await messaging().registerDeviceForRemoteMessages();
-  await saveToken(await messaging().getToken());
-  return messaging().onTokenRefresh((token) => {
+  const messaging = getMessaging();
+  await registerDeviceForRemoteMessages(messaging);
+  await saveToken(await getToken(messaging));
+  return onTokenRefresh(messaging, (token) => {
     void saveToken(token).catch(() => undefined);
   });
 }
 export async function unregisterNotifications() {
-  const token = await messaging()
-    .getToken()
-    .catch(() => null);
+  const messaging = getMessaging();
+  const token = await getToken(messaging).catch(() => null);
   if (token)
     await api
       .delete(`/notifications/devices/${encodeURIComponent(token)}`)
       .catch(() => undefined);
-  await messaging()
-    .deleteToken()
-    .catch(() => undefined);
+  await deleteToken(messaging).catch(() => undefined);
 }

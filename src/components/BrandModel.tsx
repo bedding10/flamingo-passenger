@@ -4,8 +4,14 @@ import { GLView } from "expo-gl";
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import * as THREE from "three";
 import { managedAsset } from "../core/assets";
+import { reportError } from "../core/observability";
 import { createExpoGLRenderer, endExpoGLFrame } from "../three/expoGLRenderer";
-import { loadGLTFAsync } from "../three/loadGLTF";
+import { loadGLTFAsync, type GLTFSource } from "../three/loadGLTF";
+
+// Brand 3D model bundled with the app. Guarantees the hero logo ALWAYS renders
+// (offline, and before the remote managed-asset manifest has synced). A managed
+// remote override, when present, takes precedence.
+const BUNDLED_BRAND_MODEL = require("../../assets/brand-logo.glb") as number;
 
 function disposeObject(object: THREE.Object3D) {
   object.traverse((child) => {
@@ -63,17 +69,15 @@ export function BrandModel() {
     light.position.set(3, 4, 5);
     scene.add(light);
 
-    const asset = managedAsset("brand.logo.3d");
-    if (!asset) {
-      renderer.dispose();
-      return;
-    }
+    const managed = managedAsset("brand.logo.3d");
+    const source: GLTFSource = managed?.localUri ?? BUNDLED_BRAND_MODEL;
 
     let object: THREE.Object3D;
     try {
-      const gltf = await loadGLTFAsync(asset.localUri);
+      const gltf = await loadGLTFAsync(source);
       object = gltf.scene;
-    } catch {
+    } catch (error) {
+      reportError(error, "brand.model");
       renderer.dispose();
       return;
     }

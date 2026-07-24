@@ -1,16 +1,27 @@
-import crashlytics from "@react-native-firebase/crashlytics";
-import perf from "@react-native-firebase/perf";
+import {
+  getCrashlytics,
+  setCrashlyticsCollectionEnabled,
+  setAttributes,
+  log,
+  recordError,
+  setUserId,
+} from "@react-native-firebase/crashlytics";
+import {
+  getPerformance,
+  setPerformanceCollectionEnabled,
+} from "@react-native-firebase/perf";
 import * as Application from "expo-application";
 import * as Device from "expo-device";
 
 export async function initializeObservability() {
   const enabled = !__DEV__;
+  const crashlytics = getCrashlytics();
   await Promise.all([
-    crashlytics().setCrashlyticsCollectionEnabled(enabled),
-    perf().setPerformanceCollectionEnabled(enabled),
+    setCrashlyticsCollectionEnabled(crashlytics, enabled),
+    setPerformanceCollectionEnabled(getPerformance(), enabled),
   ]);
   if (enabled) {
-    await crashlytics().setAttributes({
+    await setAttributes(crashlytics, {
       appVersion: Application.nativeApplicationVersion ?? "unknown",
       buildVersion: Application.nativeBuildVersion ?? "unknown",
       platformDevice:
@@ -21,15 +32,16 @@ export async function initializeObservability() {
 
 export function reportError(error: unknown, context: string) {
   if (__DEV__) return;
+  const crashlytics = getCrashlytics();
   const safe =
     error instanceof Error
       ? new Error(error.message)
       : new Error("UNKNOWN_ERROR");
-  crashlytics().log(context.slice(0, 120));
-  crashlytics().recordError(safe);
+  log(crashlytics, context.slice(0, 120));
+  recordError(crashlytics, safe);
 }
 
 export async function setObservabilityUser(userId: string | null) {
   if (__DEV__) return;
-  await crashlytics().setUserId(userId ?? "");
+  await setUserId(getCrashlytics(), userId ?? "");
 }

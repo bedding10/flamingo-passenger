@@ -1,12 +1,22 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  I18nManager,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  LinearTransition,
+} from "react-native-reanimated";
 import type { FirebaseAuthTypes } from "@react-native-firebase/auth";
 import { BrandModel } from "../../components/BrandModel";
 import { syncManagedAssets } from "../../core/assets";
@@ -16,38 +26,44 @@ import {
   completeEmailLink,
   confirmPhone,
   requestPhone,
-  sendEmailLink,
+  signInWithGoogle,
 } from "./firebase";
 import { useSession } from "../../core/session-store";
-type Mode = "entry" | "phone" | "otp" | "email" | "sent";
+
+type Mode = "entry" | "phone" | "otp";
+type Busy = null | "phone" | "otp" | "google";
+
 export function AuthScreen() {
-  const [msg, setMsg] = useState<Record<string, string>>({}),
-    [phone, setPhone] = useState(""),
-    [email, setEmail] = useState(""),
-    [code, setCode] = useState(""),
-    [mode, setMode] = useState<Mode>("entry"),
-    [confirmation, setConfirmation] =
-      useState<FirebaseAuthTypes.ConfirmationResult | null>(null),
-    [assetsReady, setAssetsReady] = useState(false),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<Record<string, string>>({});
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [mode, setMode] = useState<Mode>("entry");
+  const [confirmation, setConfirmation] =
+    useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
+  const [assetsReady, setAssetsReady] = useState(false);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState<string | null>(null);
   const accept = useSession((s) => s.accept);
-  // Every auth action is async and network-bound (Firebase phone/email). They
-  // used to run as bare `onPress={async () => {...}}` with no try/catch, so a
-  // rejected promise vanished silently and the screen appeared to do nothing.
-  // guard() disables the button while running and surfaces failures as a
-  // visible, logged error instead of a silent no-op.
-  const guard = (fn: () => Promise<void>) => () => {
-    if (busy) return;
-    setError(null);
-    setBusy(true);
-    void fn()
-      .catch((e) => {
-        reportError(e, "auth.action");
-        setError(tr(msg, "common.error"));
-      })
-      .finally(() => setBusy(false));
-  };
+
+  // Every auth action is async and network-bound. guard() disables the UI while
+  // running and surfaces failures as a visible, logged error instead of a
+  // silent no-op. A user-cancelled Google picker is not an error.
+  const guard =
+    (kind: Exclude<Busy, null>, fn: () => Promise<void>) => () => {
+      if (busy) return;
+      setError(null);
+      setBusy(kind);
+      void fn()
+        .catch((e: unknown) => {
+          const message = e instanceof Error ? e.message : "";
+          if (message !== "GOOGLE_SIGN_IN_CANCELLED") {
+            reportError(e, `auth.${kind}`);
+            setError(tr(msg, "common.error"));
+          }
+        })
+        .finally(() => setBusy(null));
+    };
+
   useEffect(() => {
     loadTranslations("ar")
       .then(setMsg)
@@ -56,195 +72,368 @@ export function AuthScreen() {
       .then(() => setAssetsReady(true))
       .catch(() => setAssetsReady(true));
   }, []);
+
   useEffect(() => {
-    const h = async (u: string | null) => {
-      if (!u) return;
+    const handle = async (url: string | null) => {
+      if (!url) return;
       try {
-        const s = await completeEmailLink(u);
-        if (s) await accept(s);
+        const session = await completeEmailLink(url);
+        if (session) await accept(session);
       } catch (e) {
         reportError(e, "auth.emailLink");
       }
     };
-    void Linking.getInitialURL().then(h);
-    const x = Linking.addEventListener("url", (e) => void h(e.url));
-    return () => x.remove();
+    void Linking.getInitialURL().then(handle);
+    const sub = Linking.addEventListener("url", (e) => void handle(e.url));
+    return () => sub.remove();
   }, [accept]);
+
+  const align = I18nManager.isRTL ? "right" : "left";
+
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: "#fff",
-        paddingHorizontal: 24,
-        paddingTop: 64,
-        paddingBottom: 32,
-      }}
-    >
-      <Text
-        style={{
-          fontSize: 28,
-          fontWeight: "800",
-          letterSpacing: -0.8,
-          color: "#111",
-        }}
+    <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        style={s.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        flaminGO
-      </Text>
-      <View style={{ flex: 1, minHeight: 260, marginVertical: 16 }}>
-        {assetsReady ? <BrandModel /> : null}
-      </View>
-      <View style={{ gap: 12 }}>
-        {error ? (
-          <Text style={{ color: "#B42318", fontSize: 14, fontWeight: "600" }}>
-            {error}
+        <View style={s.header}>
+          <Text style={s.brand}>flaminGO</Text>
+          <Text style={[s.tagline, { textAlign: align }]}>
+            {tr(msg, "auth.tagline")}
           </Text>
-        ) : null}
-        {mode === "entry" ? (
-          <>
-            <Button
-              title={tr(msg, "auth.continuePhone")}
-              onPress={() => setMode("phone")}
-            />
-            <Button
-              title={tr(msg, "auth.continueEmail")}
-              inverse
-              onPress={() => setMode("email")}
-            />
-          </>
-        ) : mode === "phone" ? (
-          <>
-            <Field
-              value={phone}
-              onChangeText={setPhone}
-              placeholder={tr(msg, "auth.phone")}
-              keyboardType="phone-pad"
-            />
-            <Button
-              title={tr(msg, "common.continue")}
-              loading={busy}
-              onPress={guard(async () => {
-                setConfirmation(await requestPhone(phone));
-                setMode("otp");
-              })}
-            />
-            <Back msg={msg} onPress={() => setMode("entry")} />
-          </>
-        ) : mode === "otp" && confirmation ? (
-          <>
-            <Field
-              value={code}
-              onChangeText={setCode}
-              placeholder={tr(msg, "auth.otp")}
-              keyboardType="number-pad"
-            />
-            <Button
-              title={tr(msg, "auth.verifyOtp")}
-              loading={busy}
-              onPress={guard(async () => {
-                await accept(await confirmPhone(confirmation, code));
-              })}
-            />
-            <Back msg={msg} onPress={() => setMode("phone")} />
-          </>
-        ) : mode === "email" ? (
-          <>
-            <Field
-              value={email}
-              onChangeText={setEmail}
-              placeholder={tr(msg, "auth.email")}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Button
-              title={tr(msg, "auth.sendEmailLink")}
-              loading={busy}
-              onPress={guard(async () => {
-                await sendEmailLink(email);
-                setMode("sent");
-              })}
-            />
-            <Back msg={msg} onPress={() => setMode("entry")} />
-          </>
-        ) : (
-          <>
-            <Text style={{ fontSize: 15, lineHeight: 22, color: "#555" }}>
-              {tr(msg, "auth.emailLinkSent")}
-            </Text>
-            <Button
-              title={tr(msg, "auth.resendEmailLink")}
-              inverse
-              onPress={() => setMode("email")}
-            />
-          </>
-        )}
-      </View>
-    </View>
+        </View>
+
+        <View style={s.hero}>
+          <View style={s.heroGlow} />
+          {assetsReady ? <BrandModel /> : <ActivityIndicator color="#111" />}
+        </View>
+
+        <Animated.View layout={LinearTransition.springify().damping(18)} style={s.sheet}>
+          {error ? (
+            <Animated.Text entering={FadeIn} style={s.error}>
+              {error}
+            </Animated.Text>
+          ) : null}
+
+          {mode === "entry" ? (
+            <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
+              <PrimaryButton
+                label={tr(msg, "auth.continuePhone")}
+                disabled={!!busy}
+                onPress={() => {
+                  setError(null);
+                  setMode("phone");
+                }}
+              />
+              <GoogleButton
+                label={tr(msg, "auth.continueGoogle")}
+                loading={busy === "google"}
+                disabled={!!busy}
+                onPress={guard("google", async () => {
+                  await accept(await signInWithGoogle());
+                })}
+              />
+              <Text style={s.legal}>{tr(msg, "auth.legalHint")}</Text>
+            </Animated.View>
+          ) : mode === "phone" ? (
+            <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
+              <PhoneField
+                value={phone}
+                onChangeText={setPhone}
+                placeholder={tr(msg, "auth.phone")}
+              />
+              <PrimaryButton
+                label={tr(msg, "common.continue")}
+                loading={busy === "phone"}
+                disabled={!!busy}
+                onPress={guard("phone", async () => {
+                  setConfirmation(await requestPhone(phone));
+                  setCode("");
+                  setMode("otp");
+                })}
+              />
+              <GhostButton
+                label={tr(msg, "common.back")}
+                onPress={() => setMode("entry")}
+              />
+            </Animated.View>
+          ) : (
+            <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
+              <Text style={[s.otpHint, { textAlign: align }]}>
+                {`${tr(msg, "auth.otpSentTo")} ${phone}`}
+              </Text>
+              <OtpField
+                value={code}
+                onChangeText={setCode}
+                placeholder={tr(msg, "auth.otp")}
+              />
+              <PrimaryButton
+                label={tr(msg, "auth.verifyOtp")}
+                loading={busy === "otp"}
+                disabled={!!busy || !confirmation}
+                onPress={guard("otp", async () => {
+                  if (!confirmation) throw Error("NO_CONFIRMATION");
+                  await accept(await confirmPhone(confirmation, code));
+                })}
+              />
+              <GhostButton
+                label={tr(msg, "common.back")}
+                onPress={() => setMode("phone")}
+              />
+            </Animated.View>
+          )}
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
-function Button({
-  title,
+
+function PrimaryButton({
+  label,
   onPress,
-  inverse = false,
   loading = false,
+  disabled = false,
 }: {
-  title: string;
+  label: string;
   onPress: () => void;
-  inverse?: boolean;
   loading?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
-      disabled={loading}
-      style={{
-        height: 56,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: inverse ? "#fff" : "#111",
-        borderWidth: 1,
-        borderColor: "#111",
-        opacity: loading ? 0.6 : 1,
-      }}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        s.primary,
+        (disabled || loading) && s.dim,
+        pressed && s.pressed,
+      ]}
     >
       {loading ? (
-        <ActivityIndicator color={inverse ? "#111" : "#fff"} />
+        <ActivityIndicator color="#fff" />
       ) : (
-        <Text
-          style={{
-            fontSize: 16,
-            fontWeight: "700",
-            color: inverse ? "#111" : "#fff",
-          }}
-        >
-          {title}
-        </Text>
+        <Text style={s.primaryText}>{label}</Text>
       )}
     </Pressable>
   );
 }
-function Back({
-  msg,
+
+function GoogleButton({
+  label,
+  onPress,
+  loading = false,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        s.google,
+        (disabled || loading) && s.dim,
+        pressed && s.pressed,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color="#111" />
+      ) : (
+        <>
+          <View style={s.gBadge}>
+            <Text style={s.gG}>G</Text>
+          </View>
+          <Text style={s.googleText}>{label}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+function GhostButton({
+  label,
   onPress,
 }: {
-  msg: Record<string, string>;
+  label: string;
   onPress: () => void;
 }) {
-  return <Button title={tr(msg, "common.back")} inverse onPress={onPress} />;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [s.ghost, pressed && s.pressed]}
+    >
+      <Text style={s.ghostText}>{label}</Text>
+    </Pressable>
+  );
 }
-function Field(props: React.ComponentProps<typeof TextInput>) {
+
+function PhoneField({
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <View style={s.phoneRow}>
+      <View style={s.prefix}>
+        <Text style={s.prefixText}>+213</Text>
+      </View>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#9AA0A9"
+        keyboardType="phone-pad"
+        maxLength={15}
+        style={s.phoneInput}
+      />
+    </View>
+  );
+}
+
+function OtpField({
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+}) {
   return (
     <TextInput
-      {...props}
-      style={{
-        height: 56,
-        borderWidth: 1,
-        borderColor: "#dadada",
-        borderRadius: 14,
-        paddingHorizontal: 16,
-        fontSize: 17,
-        color: "#111",
-      }}
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor="#C2C6CD"
+      keyboardType="number-pad"
+      maxLength={6}
+      style={s.otpInput}
     />
   );
 }
+
+const s = StyleSheet.create({
+  flex: { flex: 1 },
+  safe: { flex: 1, backgroundColor: "#FFFFFF" },
+  header: { paddingHorizontal: 28, paddingTop: 12 },
+  brand: {
+    fontSize: 34,
+    fontWeight: "900",
+    letterSpacing: -1,
+    color: "#0E0E10",
+  },
+  tagline: { marginTop: 6, fontSize: 15, color: "#6B7280", fontWeight: "600" },
+  hero: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 8,
+  },
+  heroGlow: {
+    position: "absolute",
+    width: 264,
+    height: 264,
+    borderRadius: 132,
+    backgroundColor: "#F3F4F6",
+  },
+  sheet: {
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 10,
+    gap: 14,
+  },
+  gap: { gap: 12 },
+  error: {
+    color: "#B42318",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  primary: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#0E0E10",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  google: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E3E8",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  googleText: { color: "#111111", fontSize: 16, fontWeight: "700" },
+  gBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E3E8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gG: { color: "#4285F4", fontSize: 17, fontWeight: "900" },
+  ghost: { height: 48, alignItems: "center", justifyContent: "center" },
+  ghostText: { color: "#6B7280", fontSize: 15, fontWeight: "700" },
+  dim: { opacity: 0.5 },
+  pressed: { opacity: 0.85 },
+  legal: {
+    color: "#9AA0A9",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 4,
+  },
+  otpHint: { color: "#4B5563", fontSize: 14, fontWeight: "600" },
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  prefix: {
+    height: 56,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E1E3E8",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  prefixText: { fontSize: 16, fontWeight: "800", color: "#111111" },
+  phoneInput: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E1E3E8",
+    paddingHorizontal: 16,
+    fontSize: 18,
+    color: "#111111",
+    textAlign: "left",
+  },
+  otpInput: {
+    height: 60,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E1E3E8",
+    paddingHorizontal: 16,
+    fontSize: 24,
+    letterSpacing: 8,
+    color: "#111111",
+    textAlign: "center",
+  },
+});

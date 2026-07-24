@@ -26,6 +26,10 @@ export const FALLBACK_MESSAGES: Record<string, string> = {
   // auth
   "auth.continuePhone": "المتابعة عبر رقم الهاتف",
   "auth.continueEmail": "المتابعة عبر البريد الإلكتروني",
+  "auth.continueGoogle": "المتابعة عبر Google",
+  "auth.tagline": "رحلتك تبدأ بلمسة واحدة",
+  "auth.legalHint": "بالمتابعة فإنك توافق على شروط الاستخدام وسياسة الخصوصية",
+  "auth.otpSentTo": "أدخل الرمز المُرسَل إلى",
   "auth.phone": "رقم الهاتف",
   "auth.otp": "رمز التحقق",
   "auth.verifyOtp": "تأكيد الرمز",

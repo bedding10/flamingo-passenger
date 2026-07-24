@@ -7,6 +7,13 @@ const config = getDefaultConfig(__dirname);
 // resolves via three's exports map ("./examples/jsm/*": "./examples/jsm/*").
 config.resolver.unstable_enablePackageExports = true;
 
+// Treat 3D model formats as bundled assets so that
+//   require("../../assets/brand-logo.glb")
+// resolves and the .glb is packaged into the app bundle.
+config.resolver.assetExts = Array.from(
+  new Set([...(config.resolver.assetExts ?? []), "glb", "gltf", "bin"]),
+);
+
 // ---------------------------------------------------------------------------
 // CRITICAL FIX (was the primary cause of the "unusable UI").
 //
