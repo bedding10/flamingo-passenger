@@ -90,6 +90,7 @@ export const passengerApi = {
     vehicleTypeId: string,
     rideClass: string,
     paymentMethod: "CASH" | "WALLET" | "CARD",
+    stops: Point[] = [],
   ) => {
     const { data } = await api.post<Trip>("/rides/request", {
       pickupLat: pickup.lat,
@@ -101,6 +102,16 @@ export const passengerApi = {
       vehicleTypeId,
       rideClass,
       paymentMethod,
+      // The payload stays byte-identical when no stop was added.
+      ...(stops.length
+        ? {
+            stops: stops.map((stop) => ({
+              lat: stop.lat,
+              lng: stop.lng,
+              address: stop.address,
+            })),
+          }
+        : {}),
     });
     return data;
   },

@@ -24,6 +24,10 @@ export interface Profile {
   locale: Locale;
   gender?: Gender | null;
   profileComplete: boolean;
+  /** Average star rating given to the passenger by drivers. */
+  rating?: number | null;
+  /** Completed trips, shown in parentheses next to the rating. */
+  tripCount?: number | null;
 }
 export interface TranslationBundle {
   locale: Locale;

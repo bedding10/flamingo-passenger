@@ -83,7 +83,8 @@ export function currentPalette(): Palette {
   return paletteFor(currentThemeName());
 }
 
-// Cycles light -> dark -> system, used by the floating theme button on the map.
-export function nextMode(mode: ThemeMode): ThemeMode {
-  return mode === "light" ? "dark" : mode === "dark" ? "system" : "light";
+// A single toggle: whatever is on screen now, switch to the opposite. The
+// first launch still follows the OS, but any tap pins an explicit preference.
+export function nextMode(current: ThemeName): ThemeMode {
+  return current === "dark" ? "light" : "dark";
 }

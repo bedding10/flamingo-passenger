@@ -97,6 +97,17 @@ const AR: Record<string, string> = {
 
   // menu
   "menu.title": "القائمة",
+  "home.whereTo": "إلى أين تريد الذهاب؟",
+  "home.enterDestination": "أدخل وجهتك",
+  "home.addStop": "إضافة محطة توقّف",
+  "home.stop": "محطة توقّف",
+  "home.stopHint": "أدخل محطة التوقّف",
+  "home.chooseStop": "اختر محطة التوقّف",
+  "home.allowLocation": "السماح بالوصول إلى الموقع",
+  "home.continueWithoutLocation": "المتابعة بدون موقع",
+  "home.exitHint": "اضغط مرة أخرى للخروج",
+  "menu.editName": "تعديل الاسم",
+  "menu.group.help": "المساعدة",
   "menu.logout": "تسجيل الخروج",
 
   // profile
@@ -362,6 +373,22 @@ const FR: Record<string, string> = {
   "home.suggestedFare": "Prix suggéré",
 
   "menu.title": "Menu",
+  "home.whereTo": "Où allez-vous ?",
+  "home.enterDestination": "Entrez votre destination",
+  "home.addStop": "Ajouter un arrêt",
+  "home.stop": "Arrêt",
+  "home.stopHint": "Entrez l'arrêt",
+  "home.chooseStop": "Choisissez l'arrêt",
+  "home.allowLocation": "Allow location access",
+  "home.continueWithoutLocation": "Continue without location",
+  "home.exitHint": "Press back again to exit",
+  "menu.editName": "Edit name",
+  "menu.group.help": "Help",
+  "home.allowLocation": "Autoriser la localisation",
+  "home.continueWithoutLocation": "Continuer sans position",
+  "home.exitHint": "Appuyez encore pour quitter",
+  "menu.editName": "Modifier le nom",
+  "menu.group.help": "Aide",
   "menu.logout": "Déconnexion",
 
   "profile.completeTitle": "Complétez votre profil",
@@ -608,6 +635,12 @@ const EN: Record<string, string> = {
   "home.suggestedFare": "Suggested price",
 
   "menu.title": "Menu",
+  "home.whereTo": "Where do you want to go?",
+  "home.enterDestination": "Enter your destination",
+  "home.addStop": "Add a stop",
+  "home.stop": "Stop",
+  "home.stopHint": "Enter the stop",
+  "home.chooseStop": "Choose the stop",
   "menu.logout": "Log out",
 
   "profile.completeTitle": "Complete your profile",

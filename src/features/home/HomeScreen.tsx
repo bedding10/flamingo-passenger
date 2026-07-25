@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Image,
   Pressable,
   ScrollView,
@@ -36,7 +37,12 @@ import { managedAsset, syncManagedAssets } from "../../core/assets";
 import { loadTranslations, tr } from "../../core/i18n";
 import { reportError } from "../../core/observability";
 import { useSession } from "../../core/session-store";
-import { NIGHT_MAP_JSON, overlayFor, type Palette } from "../../core/theme";
+import {
+  NIGHT_MAP_JSON,
+  overlayFor,
+  withAlpha,
+  type Palette,
+} from "../../core/theme";
 import { nextMode, useTheme } from "../../core/theme-store";
 import { connectTrip, type TripEvent } from "../trip/realtime";
 import { passengerApi } from "../trip/trip-api";
@@ -44,7 +50,12 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/types";
 import { passengerServicesApi, type PassengerPaymentMethod } from "../../core/passenger-api";
 
-type SearchTarget = "pickup" | "destination";
+type SearchTarget = "pickup" | "destination" | `stop:${number}`;
+// Intermediate stops are addressed as "stop:0", "stop:1", ... so a single
+// search sheet can edit every point of the route.
+const stopTarget = (index: number): SearchTarget => `stop:${index}`;
+const stopIndexOf = (target: SearchTarget | null): number | null =>
+  target && target.startsWith("stop:") ? Number(target.slice(5)) : null;
 type Negotiation = { id: string; suggestedFare?: number; suggested?: number };
 const ACTIVE = new Set([
   "SEARCHING",
@@ -58,6 +69,26 @@ const CAR_MARKER = require("../../../assets/vehicle-car.png");
 const MOTO_MARKER = require("../../../assets/vehicle-moto.png");
 const markerForClass = (rideClass?: string) =>
   rideClass === "BIKE" || rideClass === "MOTO" ? MOTO_MARKER : CAR_MARKER;
+// Bundled 3D class artwork (used until the dashboard ships its own image for
+// a class). Local files draw instantly, with no network round trip.
+const CLASS_ART: Record<string, number> = {
+  ECONOMY: require("../../../assets/class-economy.png"),
+  COMFORT: require("../../../assets/class-comfort.png"),
+  SEDAN: require("../../../assets/class-comfort.png"),
+  PREMIUM: require("../../../assets/class-comfort.png"),
+  VAN: require("../../../assets/class-xl.png"),
+  XL: require("../../../assets/class-xl.png"),
+  BIKE: require("../../../assets/class-bike.png"),
+  MOTO: require("../../../assets/class-bike.png"),
+};
+const classArt = (rideClass?: string) =>
+  CLASS_ART[rideClass ?? ""] ?? CLASS_ART.ECONOMY;
+// Illustration shown while the app is asking for (or missing) the location.
+const LOCATION_ART = require("../../../assets/illustration-location.png");
+// Algiers city centre: last-resort region so the map is never blank.
+const FALLBACK_POINT = { lat: 36.7538, lng: 3.0588 };
+// Matches the backend limit (ArrayMaxSize(3) on RequestRideDto.stops).
+const MAX_STOPS = 3;
 const assetFallbackByClass: Record<string, string> = {
   ECONOMY: "vehicle.category.economy",
   COMFORT: "vehicle.category.comfort",
@@ -65,20 +96,23 @@ const assetFallbackByClass: Record<string, string> = {
   XL: "vehicle.category.family",
   BIKE: "vehicle.category.bike",
 };
+// Single toggle button: shows the mode the tap will switch to.
 const THEME_ICON: Record<string, string> = {
   light: "\u25D0",
   dark: "\u25D1",
-  system: "\u25D2",
 };
 
 export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
   const profile = useSession((s) => s.profile);
-  const { palette, name: themeName, mode: themeMode, setMode } = useTheme();
+  const { palette, name: themeName, setMode } = useTheme();
   const styles = useMemo(() => makeStyles(palette, themeName), [palette, themeName]);
   const map = useRef<MapView>(null);
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [pickup, setPickup] = useState<Point | null>(null);
   const [destination, setDestination] = useState<Point | null>(null);
+  // Intermediate stops the driver must pass through. A slot stays null while
+  // the passenger is still picking its place, and is pruned when unused.
+  const [stops, setStops] = useState<Array<Point | null>>([]);
   const [searchTarget, setSearchTarget] = useState<SearchTarget | null>(null);
   const [search, setSearch] = useState("");
   // Optional Uber/Heetch style centre-pin picking for the active point.
@@ -110,6 +144,32 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   ).current;
   const hasDriverCoordinate = useRef(false);
 
+  const [locationDenied, setLocationDenied] = useState(false);
+  // Asking for the location is retryable: the illustration screen calls this
+  // again when the passenger taps "allow", so a first refusal is not final.
+  const requestLocation = useCallback(async () => {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        setLocationDenied(true);
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const point = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      };
+      setLocationDenied(false);
+      setDeviceLocation(point);
+      setPickup((prev) => prev ?? point);
+    } catch (e) {
+      reportError(e, "home.location");
+      setLocationDenied(true);
+    }
+  }, []);
+
   useEffect(() => {
     loadTranslations()
       .then(setMessages)
@@ -117,31 +177,8 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     syncManagedAssets()
       .then(() => setAssetRevision((x) => x + 1))
       .catch((e) => reportError(e, "home.assets"));
-    void (async () => {
-      // Location must never leave the screen stuck. Any denial or error falls
-      // back to a default region so the map and UI always become interactive.
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.status === "granted") {
-          const position = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          const point = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          };
-          setDeviceLocation(point);
-          setPickup((prev) => prev ?? point);
-          return;
-        }
-      } catch (e) {
-        reportError(e, "home.location");
-      }
-      // Fallback (Algiers city centre); the passenger can move the pickup via
-      // the search sheet or the centre pin.
-      setPickup((prev) => prev ?? { lat: 36.7538, lng: 3.0588 });
-    })();
-  }, [profile?.locale]);
+    void requestLocation();
+  }, [profile?.locale, requestLocation]);
 
   const catalog = useQuery({
     queryKey: ["catalog"],
@@ -266,6 +303,17 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
   const applyPoint = useCallback(
     (target: SearchTarget, point: Point) => {
+      const stopIndex = stopIndexOf(target);
+      if (stopIndex != null) {
+        setStops((current) => {
+          const next = [...current];
+          next[stopIndex] = point;
+          return next;
+        });
+        setQuote(null);
+        setNegotiation(null);
+        return;
+      }
       if (target === "pickup") setPickup(point);
       else {
         setDestination(point);
@@ -371,6 +419,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         selected.id,
         selected.rideClass,
         payment,
+        stops.filter((stop): stop is Point => !!stop),
       );
       setTrip(value);
       return value;
@@ -411,17 +460,147 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     setProposedFare("");
   };
 
+  // Twinkling route line: a slow opacity sweep on the glow layers, ticked
+  // only while a route is on screen (~11fps, no animation driver needed).
+  const [glowTick, setGlowTick] = useState(0);
+  const routeLength = route.data?.length ?? 0;
+  useEffect(() => {
+    if (!routeLength) return;
+    const timer = setInterval(() => setGlowTick((value) => (value + 1) % 24), 90);
+    return () => clearInterval(timer);
+  }, [routeLength]);
+  const glow = (1 + Math.sin((glowTick / 24) * Math.PI * 2)) / 2;
+
+  // Back button: leaving the app takes two consecutive presses.
+  const [exitHint, setExitHint] = useState(false);
+  const lastBackPress = useRef(0);
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (searchTarget) {
+        setSearchTarget(null);
+        setStops((current) => current.filter((stop) => !!stop));
+        return true;
+      }
+      const now = Date.now();
+      if (now - lastBackPress.current < 2000) return false;
+      lastBackPress.current = now;
+      setExitHint(true);
+      setTimeout(() => setExitHint(false), 2000);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [searchTarget]);
+
   if (!pickup)
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={palette.text} />
-        <Text style={styles.muted}>
+        <Image
+          source={LOCATION_ART}
+          resizeMode="contain"
+          style={styles.locationArt}
+        />
+        <Text style={styles.locationTitle}>
           {tr(messages, "home.locationRequired")}
         </Text>
+        {locationDenied ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void requestLocation()}
+              style={styles.locationPrimary}
+            >
+              <Text style={styles.locationPrimaryText}>
+                {tr(messages, "home.allowLocation")}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setPickup(FALLBACK_POINT)}
+              style={styles.locationSecondary}
+            >
+              <Text style={styles.locationSecondaryText}>
+                {tr(messages, "home.continueWithoutLocation")}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <ActivityIndicator color={palette.text} />
+        )}
       </View>
     );
   const driverVisible = trip?.driverLat != null && trip.driverLng != null;
   const searchOpen = !!searchTarget;
+  const activeStopIndex = stopIndexOf(searchTarget);
+  // Drops the slots the passenger opened but never filled.
+  const pruneStops = () =>
+    setStops((current) => current.filter((stop) => !!stop));
+  const closeSearch = () => {
+    setSearchTarget(null);
+    setSearch("");
+    pruneStops();
+  };
+  const hintFor = (target: SearchTarget) =>
+    target === "pickup"
+      ? "home.pickupHint"
+      : stopIndexOf(target) != null
+        ? "home.stopHint"
+        : "home.destinationHint";
+
+  // One row of the route editor: reads as text, becomes an input once active.
+  const renderRouteField = (
+    target: SearchTarget,
+    label: string,
+    value: string | undefined,
+    marker: JSX.Element,
+    onRemove?: () => void,
+  ) => {
+    const active = searchTarget === target;
+    return (
+      <View
+        key={target}
+        style={[styles.routeField, active && styles.routeFieldActive]}
+      >
+        {marker}
+        <View style={styles.flex}>
+          <Text style={styles.label}>{tr(messages, label)}</Text>
+          {active ? (
+            <TextInput
+              autoFocus
+              value={search}
+              onChangeText={setSearch}
+              placeholder={tr(messages, hintFor(target))}
+              placeholderTextColor={palette.textMuted}
+              style={styles.routeInput}
+            />
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setSearch("");
+                setSearchTarget(target);
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={[styles.locationText, !value && styles.muted]}
+              >
+                {value || tr(messages, hintFor(target))}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+        {onRemove ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onRemove}
+            style={styles.routeRemove}
+          >
+            <Text style={styles.quickIconText}>{"\u00D7"}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  };
   return (
     <View style={styles.root}>
       <MapView
@@ -443,19 +622,44 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         showsMyLocationButton={false}
         toolbarEnabled={false}
       >
+{/* Monochrome markers: round for the pickup, square for the drop-off. */}
         <Marker
           coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-          pinColor={palette.primary}
-        />
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+        >
+          <View style={styles.pickupMarker}>
+            <View style={styles.pickupMarkerCore} />
+          </View>
+        </Marker>
         {destination ? (
           <Marker
             coordinate={{
               latitude: destination.lat,
               longitude: destination.lng,
             }}
-            pinColor={palette.accent}
-          />
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View style={styles.destinationMarker}>
+              <View style={styles.destinationMarkerCore} />
+            </View>
+          </Marker>
         ) : null}
+        {stops.map((stop, index) =>
+          stop ? (
+            <Marker
+              key={`stop-marker-${index}`}
+              coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              tracksViewChanges={false}
+            >
+              <View style={styles.stopMarker}>
+                <View style={styles.stopMarkerCore} />
+              </View>
+            </Marker>
+          ) : null,
+        )}
         {driverVisible ? (
           <Marker.Animated
             coordinate={driverCoordinate as unknown as LatLng}
@@ -474,11 +678,38 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           </Marker.Animated>
         ) : null}
         {route.data?.length ? (
-          <Polyline
-            coordinates={route.data}
-            strokeColor={palette.primary}
-            strokeWidth={5}
-          />
+          <>
+            {/* Four stacked strokes build the glow: wide halo, soft halo, solid
+                core and a travelling dashed highlight. */}
+            <Polyline
+              coordinates={route.data}
+              strokeColor={withAlpha(palette.primary, 0.1 + glow * 0.12)}
+              strokeWidth={18}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={route.data}
+              strokeColor={withAlpha(palette.primary, 0.28 + glow * 0.22)}
+              strokeWidth={11}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={route.data}
+              strokeColor={palette.primary}
+              strokeWidth={5}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              coordinates={route.data}
+              strokeColor={withAlpha(palette.onPrimary, 0.25 + glow * 0.6)}
+              strokeWidth={2}
+              lineDashPattern={[5, 13]}
+              lineCap="round"
+            />
+          </>
         ) : null}
       </MapView>
 
@@ -494,13 +725,27 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={tr(messages, "theme.title")}
-        onPress={() => setMode(nextMode(themeMode))}
+        onPress={() => setMode(nextMode(themeName))}
         style={[styles.floating, styles.floatingRight]}
       >
         <Text style={styles.floatingIcon}>
-          {THEME_ICON[themeMode] ?? THEME_ICON.system}
+          {THEME_ICON[themeName] ?? THEME_ICON.light}
         </Text>
       </Pressable>
+
+      {/* "Press back again to exit" hint. */}
+      {exitHint ? (
+        <Animated.View
+          entering={FadeIn}
+          exiting={FadeOut}
+          pointerEvents="none"
+          style={styles.exitHint}
+        >
+          <Text style={styles.exitHintText}>
+            {tr(messages, "home.exitHint")}
+          </Text>
+        </Animated.View>
+      ) : null}
 
       {/* Centre pin: optional way to set the active point by dragging the map. */}
       {pinMode ? (
@@ -517,27 +762,55 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           style={styles.searchSheet}
         >
           <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>
-            {tr(
-              messages,
-              searchTarget === "pickup"
-                ? "home.choosePickup"
-                : "home.chooseDestination",
+          <Text style={styles.sheetTitle}>{tr(messages, "home.whereTo")}</Text>
+          <View style={styles.routeEditor}>
+            {renderRouteField(
+              "pickup",
+              "home.pickup",
+              pickup.address,
+              <View style={styles.routeDot} />,
             )}
-          </Text>
-          <TextInput
-            autoFocus
-            value={search}
-            onChangeText={setSearch}
-            placeholder={tr(
-              messages,
-              searchTarget === "pickup"
-                ? "home.pickupHint"
-                : "home.destinationHint",
+            {stops.map((stop, index) =>
+              renderRouteField(
+                stopTarget(index),
+                "home.stop",
+                stop?.address,
+                <View style={styles.routeStopDot} />,
+                () => {
+                  setStops((current) =>
+                    current.filter((_, position) => position !== index),
+                  );
+                  if (activeStopIndex === index) {
+                    setSearch("");
+                    setSearchTarget("destination");
+                  }
+                },
+              ),
             )}
-            placeholderTextColor={palette.textMuted}
-            style={styles.searchInput}
-          />
+            {renderRouteField(
+              "destination",
+              "home.destination",
+              destination?.address,
+              <View style={styles.routeSquare} />,
+            )}
+          </View>
+          {stops.length < MAX_STOPS ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const index = stops.length;
+                setStops((current) => [...current, null]);
+                setSearch("");
+                setSearchTarget(stopTarget(index));
+              }}
+              style={styles.addStop}
+            >
+              <Text style={styles.addStopIcon}>{"\uFF0B"}</Text>
+              <Text style={styles.addStopText}>
+                {tr(messages, "home.addStop")}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable onPress={() => void useDeviceLocation()} style={styles.quickRow}>
             <View style={styles.quickIcon}>
               <Text style={styles.quickIconText}>{"\u25C9"}</Text>
@@ -549,8 +822,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           <Pressable
             onPress={() => {
               setPinMode(searchTarget);
-              setSearchTarget(null);
-              setSearch("");
+              closeSearch();
             }}
             style={styles.quickRow}
           >
@@ -583,10 +855,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             />
           </View>
           <Pressable
-            onPress={() => {
-              setSearchTarget(null);
-              setSearch("");
-            }}
+            onPress={closeSearch}
             style={styles.secondaryButton}
           >
             <Text style={styles.buttonTextDark}>
@@ -676,51 +945,90 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             />
           ) : (
             <>
-              {/* Editable pickup + destination, both open the same search sheet. */}
-              <Pressable
-                onPress={() => setSearchTarget("pickup")}
-                style={styles.locationRow}
-              >
-                <View style={[styles.dot, { backgroundColor: palette.primary }]} />
-                <View style={styles.flex}>
-                  <Text style={styles.label}>{tr(messages, "home.pickup")}</Text>
-                  <Text numberOfLines={1} style={styles.locationText}>
-                    {pickup.address ?? tr(messages, "home.currentLocation")}
-                  </Text>
-                </View>
-                <Text style={styles.editIcon}>{"\u270E"}</Text>
-              </Pressable>
-              <View style={styles.divider} />
-              <Pressable
-                onPress={() => setSearchTarget("destination")}
-                style={styles.locationRow}
-              >
-                <View style={[styles.diamond, { backgroundColor: palette.accent }]} />
-                <View style={styles.flex}>
-                  <Text style={styles.label}>
-                    {tr(messages, "home.destination")}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.locationText, !destination && styles.muted]}
-                  >
-                    {destination?.address ?? tr(messages, "home.destinationHint")}
-                  </Text>
-                </View>
-                <Text style={styles.editIcon}>{"\u270E"}</Text>
-              </Pressable>
-
               {!destination ? (
+                /* Collapsed Heetch box: one tap opens the full route editor. */
                 <Pressable
-                  onPress={() => setSearchTarget("destination")}
-                  style={styles.primaryButton}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSearch("");
+                    setSearchTarget("destination");
+                  }}
+                  style={styles.collapsedSearch}
                 >
-                  <Text style={styles.buttonTextLight}>
-                    {tr(messages, "home.next")}
+                  <Text style={styles.collapsedTitle}>
+                    {tr(messages, "home.whereTo")}
                   </Text>
+                  <View style={styles.collapsedField}>
+                    <View style={styles.routeSquare} />
+                    <Text style={styles.collapsedFieldText}>
+                      {tr(messages, "home.enterDestination")}
+                    </Text>
+                  </View>
                 </Pressable>
               ) : (
                 <>
+                  {/* Full route: pickup, optional stops, destination. */}
+                  <Pressable
+                    onPress={() => {
+                      setSearch("");
+                      setSearchTarget("pickup");
+                    }}
+                    style={styles.locationRow}
+                  >
+                    <View style={styles.routeDot} />
+                    <View style={styles.flex}>
+                      <Text style={styles.label}>
+                        {tr(messages, "home.pickup")}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.locationText}>
+                        {pickup.address ?? tr(messages, "home.currentLocation")}
+                      </Text>
+                    </View>
+                    <Text style={styles.editIcon}>{"\u270E"}</Text>
+                  </Pressable>
+                  {stops.map((stop, index) =>
+                    stop ? (
+                      <Pressable
+                        key={`stop-row-${index}`}
+                        onPress={() => {
+                          setSearch("");
+                          setSearchTarget(stopTarget(index));
+                        }}
+                        style={styles.locationRow}
+                      >
+                        <View style={styles.routeStopDot} />
+                        <View style={styles.flex}>
+                          <Text style={styles.label}>
+                            {tr(messages, "home.stop")}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.locationText}>
+                            {stop.address ?? tr(messages, "home.stop")}
+                          </Text>
+                        </View>
+                        <Text style={styles.editIcon}>{"\u270E"}</Text>
+                      </Pressable>
+                    ) : null,
+                  )}
+                  <View style={styles.divider} />
+                  <Pressable
+                    onPress={() => {
+                      setSearch("");
+                      setSearchTarget("destination");
+                    }}
+                    style={styles.locationRow}
+                  >
+                    <View style={styles.routeSquare} />
+                    <View style={styles.flex}>
+                      <Text style={styles.label}>
+                        {tr(messages, "home.destination")}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.locationText}>
+                        {destination.address ??
+                          tr(messages, "home.destinationHint")}
+                      </Text>
+                    </View>
+                    <Text style={styles.editIcon}>{"\u270E"}</Text>
+                  </Pressable>
                   <Text style={styles.sheetTitle}>
                     {tr(messages, "home.chooseRide")}
                   </Text>
@@ -884,11 +1192,15 @@ function VehicleCard({
           style={styles.vehicleImage}
         />
       ) : (
-        <View style={[styles.vehicleImage, styles.vehicleImageFallback]}>
-          <Text numberOfLines={1} style={styles.vehicleImageFallbackText}>
-            {tr(messages, assetFallbackByClass[vehicle.rideClass] ?? "")}
-          </Text>
-        </View>
+        <Image
+          source={classArt(vehicle.rideClass)}
+          resizeMode="contain"
+          accessibilityLabel={tr(
+            messages,
+            assetFallbackByClass[vehicle.rideClass] ?? "",
+          )}
+          style={styles.vehicleImage}
+        />
       )}
       <Text numberOfLines={1} style={styles.vehicleName}>
         {vehicle.nameI18n?.[locale] ?? vehicle.name}
@@ -1348,6 +1660,116 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     },
     quickIconText: { color: palette.textMuted, fontSize: 16 },
     suggestionList: { flex: 1, minHeight: 180 },
+    routeEditor: {
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+      paddingHorizontal: 14,
+      marginTop: 14,
+    },
+    routeField: {
+      minHeight: 62,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: palette.border,
+    },
+    routeFieldActive: { borderBottomColor: palette.primary },
+    routeInput: {
+      height: 34,
+      padding: 0,
+      fontSize: 16,
+      fontWeight: "700",
+      color: palette.text,
+    },
+    routeDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: palette.primary,
+    },
+    routeStopDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      borderWidth: 2,
+      borderColor: palette.primary,
+      marginLeft: 1,
+    },
+    routeSquare: {
+      width: 12,
+      height: 12,
+      borderRadius: 2,
+      backgroundColor: palette.primary,
+    },
+    routeRemove: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: palette.surface,
+    },
+    addStop: {
+      marginTop: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    addStopIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      textAlign: "center",
+      lineHeight: 30,
+      fontSize: 15,
+      color: palette.onPrimary,
+      backgroundColor: palette.primary,
+      overflow: "hidden",
+    },
+    addStopText: { fontSize: 15, fontWeight: "700", color: palette.text },
+    collapsedSearch: { paddingTop: 2 },
+    collapsedTitle: {
+      fontSize: 22,
+      fontWeight: "900",
+      color: palette.text,
+      letterSpacing: -0.4,
+      marginBottom: 14,
+    },
+    collapsedField: {
+      minHeight: 58,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 16,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+    },
+    collapsedFieldText: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: palette.textMuted,
+    },
+    stopMarker: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: palette.onPrimary,
+      borderWidth: 2,
+      borderColor: palette.primary,
+    },
+    stopMarkerCore: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: palette.primary,
+    },
     bottomSheet: {
       position: "absolute",
       left: 0,
@@ -1547,6 +1969,83 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       textAlignVertical: "top",
     },
     vehicleMarker: { width: 34, height: 68 },
+    pickupMarker: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: palette.onPrimary,
+      borderWidth: 3,
+      borderColor: palette.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pickupMarkerCore: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: palette.primary,
+    },
+    destinationMarker: {
+      width: 26,
+      height: 26,
+      borderRadius: 7,
+      backgroundColor: palette.onPrimary,
+      borderWidth: 3,
+      borderColor: palette.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    destinationMarkerCore: {
+      width: 10,
+      height: 10,
+      borderRadius: 2,
+      backgroundColor: palette.primary,
+    },
+    locationArt: { width: 220, height: 220, marginBottom: 8 },
+    locationTitle: {
+      color: palette.text,
+      fontSize: 18,
+      fontWeight: "800",
+      textAlign: "center",
+      paddingHorizontal: 28,
+    },
+    locationPrimary: {
+      minHeight: 54,
+      paddingHorizontal: 28,
+      borderRadius: 27,
+      backgroundColor: palette.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 8,
+    },
+    locationPrimaryText: {
+      color: palette.onPrimary,
+      fontSize: 16,
+      fontWeight: "800",
+    },
+    locationSecondary: {
+      minHeight: 46,
+      paddingHorizontal: 20,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    locationSecondaryText: {
+      color: palette.textMuted,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    exitHint: {
+      position: "absolute",
+      bottom: 34,
+      alignSelf: "center",
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      borderRadius: 22,
+      backgroundColor: overlay,
+      borderWidth: 1,
+      borderColor: palette.border,
+    },
+    exitHintText: { color: palette.text, fontSize: 14, fontWeight: "700" },
     dismissButton: {
       height: 46,
       paddingHorizontal: 14,

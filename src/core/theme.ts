@@ -63,6 +63,28 @@ export const overlayFor = (name: ThemeName) =>
 
 // Minimal black / grey Google Maps style used when `palette.mapStyle` is
 // "night": black streets over a very dark neutral background, labels dimmed.
+/**
+ * Applies an alpha channel to a palette colour so overlays and the glowing
+ * route line stay palette-driven (no literal colours in feature code).
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const clamped = Math.max(0, Math.min(1, alpha));
+  const hex = color.replace("#", "");
+  const full =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : hex;
+  const value = Number.parseInt(full, 16);
+  if (!Number.isFinite(value)) return color;
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${clamped})`;
+}
+
 export const NIGHT_MAP_JSON = [
   { elementType: "geometry", stylers: [{ color: "#0B0B0C" }] },
   { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
