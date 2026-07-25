@@ -1,20 +1,15 @@
-import { useEffect, useState } from "react";
-import { loadTranslations } from "./i18n";
-import { useSession } from "./session-store";
+import { useEffect } from "react";
+import { useLocaleStore } from "./locale-store";
 
+// Returns the active app locale and its merged (bundled + remote) messages.
+// Language is driven by the user's choice in the flag switcher, persisted and
+// shared across every screen via the locale store.
 export function useMessages() {
-  const locale = useSession((state) => state.profile?.locale ?? "ar");
-  const [messages, setMessages] = useState<Record<string, string>>({});
+  const locale = useLocaleStore((state) => state.locale);
+  const messages = useLocaleStore((state) => state.messages);
+  const hydrate = useLocaleStore((state) => state.hydrate);
   useEffect(() => {
-    let active = true;
-    loadTranslations(locale)
-      .then((next) => {
-        if (active) setMessages(next);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [locale]);
+    void hydrate();
+  }, [locale, hydrate]);
   return { locale, messages };
 }

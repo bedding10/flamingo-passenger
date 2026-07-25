@@ -81,7 +81,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   const hasDriverCoordinate = useRef(false);
 
   useEffect(() => {
-    loadTranslations(profile?.locale ?? "ar")
+    loadTranslations()
       .then(setMessages)
       .catch((e) => reportError(e, "home.i18n"));
     syncManagedAssets()

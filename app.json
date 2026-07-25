@@ -24,7 +24,6 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "flaminGO uses your location to set pickup and show ride options.",
         "NSPhotoLibraryUsageDescription": "flaminGO uses your selected photo for your passenger profile.",
-        "NSCameraUsageDescription": "flaminGO uses your camera to take a selfie for your passenger profile.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "buildNumber": "1"
@@ -35,8 +34,7 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS",
-        "RECORD_AUDIO",
-        "CAMERA"
+        "RECORD_AUDIO"
       ],
       "intentFilters": [
         {
@@ -68,8 +66,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "flaminGO uses your selected photo for your passenger profile.",
-          "cameraPermission": "flaminGO uses your camera to take a selfie for your passenger profile."
+          "photosPermission": "flaminGO uses your selected photo for your passenger profile."
         }
       ],
       "expo-location",
@@ -78,8 +75,8 @@
         "expo-build-properties",
         {
           "android": {
-            "enableProguardInReleaseBuilds": false,
-            "enableShrinkResourcesInReleaseBuilds": false,
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "usesCleartextTraffic": false,
             "compileSdkVersion": 35,
             "targetSdkVersion": 35

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  I18nManager,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -18,9 +18,10 @@ import Animated, {
   LinearTransition,
 } from "react-native-reanimated";
 import type { FirebaseAuthTypes } from "@react-native-firebase/auth";
-import { BrandModel } from "../../components/BrandModel";
 import { syncManagedAssets } from "../../core/assets";
-import { loadTranslations, tr } from "../../core/i18n";
+import { tr } from "../../core/i18n";
+import { useLocaleStore, SUPPORTED_LOCALES } from "../../core/locale-store";
+import type { Locale } from "../../core/contracts";
 import { reportError } from "../../core/observability";
 import {
   completeEmailLink,
@@ -29,11 +30,23 @@ import {
 } from "./firebase";
 import { useSession } from "../../core/session-store";
 
+// App logo (replaces the removed 3D model). Shown centered on the launch screen.
+const APP_LOGO = require("../../../assets/app-logo.png") as number;
+
+// Flag icons for the language switcher (icons only, no labels).
+const FLAGS: Record<Locale, number> = {
+  ar: require("../../../assets/flag-ar.png") as number,
+  fr: require("../../../assets/flag-fr.png") as number,
+  en: require("../../../assets/flag-en.png") as number,
+};
+
 type Mode = "entry" | "phone" | "otp";
 type Busy = null | "phone" | "otp";
 
 export function AuthScreen() {
-  const [msg, setMsg] = useState<Record<string, string>>({});
+  const messages = useLocaleStore((state) => state.messages);
+  const locale = useLocaleStore((state) => state.locale);
+  const hydrate = useLocaleStore((state) => state.hydrate);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [mode, setMode] = useState<Mode>("entry");
@@ -46,7 +59,7 @@ export function AuthScreen() {
 
   // Every auth action is async and network-bound. guard() disables the UI while
   // running and surfaces failures as a visible, logged error instead of a
-  // silent no-op. A user-cancelled Google picker is not an error.
+  // silent no-op.
   const guard =
     (kind: Exclude<Busy, null>, fn: () => Promise<void>) => () => {
       if (busy) return;
@@ -54,19 +67,17 @@ export function AuthScreen() {
       setBusy(kind);
       void fn()
         .catch((e: unknown) => {
-          const message = e instanceof Error ? e.message : "";
-          if (message !== "GOOGLE_SIGN_IN_CANCELLED") {
-            reportError(e, `auth.${kind}`);
-            setError(tr(msg, "common.error"));
-          }
+          reportError(e, `auth.${kind}`);
+          setError(tr(messages, "common.error"));
         })
         .finally(() => setBusy(null));
     };
 
   useEffect(() => {
-    loadTranslations("ar")
-      .then(setMsg)
-      .catch((e) => reportError(e, "auth.i18n"));
+    void hydrate();
+  }, [locale, hydrate]);
+
+  useEffect(() => {
     syncManagedAssets()
       .then(() => setAssetsReady(true))
       .catch(() => setAssetsReady(true));
@@ -87,7 +98,7 @@ export function AuthScreen() {
     return () => sub.remove();
   }, [accept]);
 
-  const align = I18nManager.isRTL ? "right" : "left";
+  const align = locale === "ar" ? "right" : "left";
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "bottom"]}>
@@ -96,15 +107,24 @@ export function AuthScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={s.header}>
-          <Text style={s.brand}>flaminGO</Text>
-          <Text style={[s.tagline, { textAlign: align }]}>
-            {tr(msg, "auth.tagline")}
-          </Text>
+          <View style={s.headerText}>
+            <Text style={s.brand}>
+              flamin<Text style={s.brandGo}>GO</Text>
+            </Text>
+            <Text style={[s.tagline, { textAlign: align }]}>
+              {tr(messages, "auth.tagline")}
+            </Text>
+          </View>
+          <LanguagePicker />
         </View>
 
         <View style={s.hero}>
           <View style={s.heroGlow} />
-          {assetsReady ? <BrandModel /> : <ActivityIndicator color="#111" />}
+          {assetsReady ? (
+            <Image source={APP_LOGO} style={s.logo} resizeMode="contain" />
+          ) : (
+            <ActivityIndicator color="#111" />
+          )}
         </View>
 
         <Animated.View layout={LinearTransition.springify().damping(18)} style={s.sheet}>
@@ -117,24 +137,24 @@ export function AuthScreen() {
           {mode === "entry" ? (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
               <PrimaryButton
-                label={tr(msg, "auth.continuePhone")}
+                label={tr(messages, "auth.continuePhone")}
                 disabled={!!busy}
                 onPress={() => {
                   setError(null);
                   setMode("phone");
                 }}
               />
-              <Text style={s.legal}>{tr(msg, "auth.legalHint")}</Text>
+              <Text style={s.legal}>{tr(messages, "auth.legalHint")}</Text>
             </Animated.View>
           ) : mode === "phone" ? (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
               <PhoneField
                 value={phone}
                 onChangeText={setPhone}
-                placeholder={tr(msg, "auth.phone")}
+                placeholder={tr(messages, "auth.phone")}
               />
               <PrimaryButton
-                label={tr(msg, "common.continue")}
+                label={tr(messages, "common.continue")}
                 loading={busy === "phone"}
                 disabled={!!busy}
                 onPress={guard("phone", async () => {
@@ -144,22 +164,22 @@ export function AuthScreen() {
                 })}
               />
               <GhostButton
-                label={tr(msg, "common.back")}
+                label={tr(messages, "common.back")}
                 onPress={() => setMode("entry")}
               />
             </Animated.View>
           ) : (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
               <Text style={[s.otpHint, { textAlign: align }]}>
-                {`${tr(msg, "auth.otpSentTo")} ${phone}`}
+                {`${tr(messages, "auth.otpSentTo")} ${phone}`}
               </Text>
               <OtpField
                 value={code}
                 onChangeText={setCode}
-                placeholder={tr(msg, "auth.otp")}
+                placeholder={tr(messages, "auth.otp")}
               />
               <PrimaryButton
-                label={tr(msg, "auth.verifyOtp")}
+                label={tr(messages, "auth.verifyOtp")}
                 loading={busy === "otp"}
                 disabled={!!busy || !confirmation}
                 onPress={guard("otp", async () => {
@@ -168,7 +188,7 @@ export function AuthScreen() {
                 })}
               />
               <GhostButton
-                label={tr(msg, "common.back")}
+                label={tr(messages, "common.back")}
                 onPress={() => setMode("phone")}
               />
             </Animated.View>
@@ -176,6 +196,46 @@ export function AuthScreen() {
         </Animated.View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+// Language switcher: shows ONLY the current language's flag. Tapping it reveals
+// the other flags; picking one switches the whole app's language instantly.
+function LanguagePicker() {
+  const locale = useLocaleStore((state) => state.locale);
+  const setLocale = useLocaleStore((state) => state.setLocale);
+  const [open, setOpen] = useState(false);
+  const others = SUPPORTED_LOCALES.filter((l) => l !== locale);
+
+  return (
+    <View style={s.langWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`language: ${locale}`}
+        onPress={() => setOpen((v) => !v)}
+        style={({ pressed }) => [s.flagBtn, pressed && s.pressed]}
+      >
+        <Image source={FLAGS[locale]} style={s.flag} />
+      </Pressable>
+      {open ? (
+        <View style={s.langMenu}>
+          {others.map((l) => (
+            <Pressable
+              key={l}
+              accessibilityRole="button"
+              accessibilityLabel={`switch language to ${l}`}
+              onPress={() => {
+                setOpen(false);
+                void setLocale(l);
+              }}
+              style={({ pressed }) => [s.flagBtn, pressed && s.pressed]}
+            >
+              <Image source={FLAGS[l]} style={s.flag} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -205,42 +265,6 @@ function PrimaryButton({
         <ActivityIndicator color="#fff" />
       ) : (
         <Text style={s.primaryText}>{label}</Text>
-      )}
-    </Pressable>
-  );
-}
-
-function GoogleButton({
-  label,
-  onPress,
-  loading = false,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      disabled={disabled || loading}
-      style={({ pressed }) => [
-        s.google,
-        (disabled || loading) && s.dim,
-        pressed && s.pressed,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color="#111" />
-      ) : (
-        <>
-          <View style={s.gBadge}>
-            <Text style={s.gG}>G</Text>
-          </View>
-          <Text style={s.googleText}>{label}</Text>
-        </>
       )}
     </Pressable>
   );
@@ -316,14 +340,56 @@ function OtpField({
 const s = StyleSheet.create({
   flex: { flex: 1 },
   safe: { flex: 1, backgroundColor: "#FFFFFF" },
-  header: { paddingHorizontal: 28, paddingTop: 12 },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: 28,
+    paddingTop: 12,
+    zIndex: 20,
+  },
+  headerText: { flex: 1 },
   brand: {
     fontSize: 34,
     fontWeight: "900",
     letterSpacing: -1,
-    color: "#0E0E10",
+    color: "#1B1B1F",
+  },
+  brandGo: {
+    color: "#D9A520",
+    fontSize: 34,
+    fontWeight: "900",
+    letterSpacing: -1,
   },
   tagline: { marginTop: 6, fontSize: 15, color: "#6B7280", fontWeight: "600" },
+  // Language switcher
+  langWrap: { position: "relative", marginLeft: 12, zIndex: 30 },
+  flagBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+  },
+  flag: { width: 34, height: 34, borderRadius: 17 },
+  langMenu: {
+    position: "absolute",
+    top: 50,
+    right: 0,
+    padding: 6,
+    gap: 8,
+    borderRadius: 26,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#ECECEC",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
   hero: {
     flex: 1,
     alignItems: "center",
@@ -336,6 +402,10 @@ const s = StyleSheet.create({
     height: 264,
     borderRadius: 132,
     backgroundColor: "#F3F4F6",
+  },
+  logo: {
+    width: 240,
+    height: 240,
   },
   sheet: {
     paddingHorizontal: 24,
@@ -358,29 +428,6 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   primaryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
-  google: {
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E1E3E8",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  googleText: { color: "#111111", fontSize: 16, fontWeight: "700" },
-  gBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E1E3E8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gG: { color: "#4285F4", fontSize: 17, fontWeight: "900" },
   ghost: { height: 48, alignItems: "center", justifyContent: "center" },
   ghostText: { color: "#6B7280", fontSize: 15, fontWeight: "700" },
   dim: { opacity: 0.5 },

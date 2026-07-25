@@ -17,6 +17,8 @@ import { useSession } from "../../core/session-store";
 // صورتا اختيار الجنس (ذكر/أنثى) المرفقتان — مجمّعتان داخل التطبيق.
 const MALE_ICON = require("../../../assets/gender-male.png") as number;
 const FEMALE_ICON = require("../../../assets/gender-female.png") as number;
+// الصورة الافتراضية الدائرية للملف الشخصي عند عدم رفع صورة.
+const DEFAULT_AVATAR = require("../../../assets/default-avatar.png") as number;
 
 // في صفحة إكمال الملف الشخصي نكتفي بـ ذكر/أنثى عبر الصورتين.
 const GENDER_OPTIONS: { value: Gender; icon: number }[] = [
@@ -35,7 +37,7 @@ export function ProfileScreen() {
 
   // اللغة ثابتة (العربية) في هذه الصفحة — لم نعد نعرض اختيار اللغات هنا.
   useEffect(() => {
-    loadTranslations("ar")
+    loadTranslations()
       .then(setMessages)
       .catch(() => undefined);
   }, []);
@@ -66,27 +68,7 @@ export function ProfileScreen() {
     }
   }
 
-  // يلتقط سيلفي من الكاميرا.
-  async function takeSelfie() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        tr(messages, "profile.takeSelfie"),
-        tr(messages, "profile.cameraDenied"),
-      );
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      cameraType: ImagePicker.CameraType.front,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.82,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    await uploadAsset(result.assets[0]);
-  }
-
-  // يختار صورة من معرض الهاتف.
+  // يفتح معرض صور الهاتف مباشرة لاختيار صورة (بدون كاميرا/سيلفي).
   async function pickFromLibrary() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -98,19 +80,10 @@ export function ProfileScreen() {
     await uploadAsset(result.assets[0]);
   }
 
-  // عند الضغط على الدائرة: اختيار من الهاتف أو التقاط سيلفي.
+  // عند الضغط على الدائرة: يفتح معرض الصور مباشرة.
   function onAvatarPress() {
     if (uploading) return;
-    Alert.alert(
-      tr(messages, "profile.photoSourceTitle"),
-      undefined,
-      [
-        { text: tr(messages, "profile.fromLibrary"), onPress: pickFromLibrary },
-        { text: tr(messages, "profile.takeSelfie"), onPress: takeSelfie },
-        { text: tr(messages, "common.cancel"), style: "cancel" },
-      ],
-      { cancelable: true },
-    );
+    void pickFromLibrary();
   }
 
   async function save() {
@@ -162,22 +135,22 @@ export function ProfileScreen() {
         <Pressable onPress={onAvatarPress} style={avatarCircle}>
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={avatarImage} />
-          ) : uploading ? (
-            <ActivityIndicator color="#111" />
           ) : (
-            <View style={{ alignItems: "center", gap: 6 }}>
-              <Text style={{ fontSize: 34 }}>📷</Text>
-              <Text style={{ color: "#666", fontSize: 13 }}>
-                {tr(messages, "profile.choosePhoto")}
-              </Text>
-            </View>
+            <Image
+              source={DEFAULT_AVATAR}
+              style={avatarImage}
+              resizeMode="cover"
+            />
           )}
-          {uploading && avatarUrl ? (
+          {uploading ? (
             <View style={avatarOverlay}>
               <ActivityIndicator color="#fff" />
             </View>
           ) : null}
         </Pressable>
+        <Text style={{ marginTop: 10, color: "#666", fontSize: 13 }}>
+          {tr(messages, "profile.choosePhoto")}
+        </Text>
       </View>
 
       {/* الاسم */}
@@ -242,9 +215,8 @@ const avatarCircle = {
   width: 140,
   height: 140,
   borderRadius: 70,
-  borderWidth: 2,
-  borderColor: "#ddd",
-  borderStyle: "dashed",
+  borderWidth: 1,
+  borderColor: "#E5E5E5",
   alignItems: "center",
   justifyContent: "center",
   backgroundColor: "#fafafa",
