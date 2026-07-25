@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -23,6 +23,8 @@ import { tr } from "../../core/i18n";
 import { useLocaleStore, SUPPORTED_LOCALES } from "../../core/locale-store";
 import type { Locale } from "../../core/contracts";
 import { reportError } from "../../core/observability";
+import { useTheme } from "../../core/theme-store";
+import type { Palette } from "../../core/theme";
 import {
   completeEmailLink,
   confirmPhone,
@@ -42,20 +44,22 @@ const FLAGS: Record<Locale, number> = {
 
 type Mode = "entry" | "phone" | "otp";
 type Busy = null | "phone" | "otp";
+type Styles = ReturnType<typeof makeStyles>;
 
 export function AuthScreen() {
   const messages = useLocaleStore((state) => state.messages);
   const locale = useLocaleStore((state) => state.locale);
   const hydrate = useLocaleStore((state) => state.hydrate);
+  const { palette } = useTheme();
+  const s = useMemo(() => makeStyles(palette), [palette]);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [mode, setMode] = useState<Mode>("entry");
   const [confirmation, setConfirmation] =
     useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
-  const [assetsReady, setAssetsReady] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  const accept = useSession((s) => s.accept);
+  const accept = useSession((state) => state.accept);
 
   // Every auth action is async and network-bound. guard() disables the UI while
   // running and surfaces failures as a visible, logged error instead of a
@@ -78,9 +82,7 @@ export function AuthScreen() {
   }, [locale, hydrate]);
 
   useEffect(() => {
-    syncManagedAssets()
-      .then(() => setAssetsReady(true))
-      .catch(() => setAssetsReady(true));
+    void syncManagedAssets().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -115,16 +117,11 @@ export function AuthScreen() {
               {tr(messages, "auth.tagline")}
             </Text>
           </View>
-          <LanguagePicker />
+          <LanguagePicker styles={s} />
         </View>
 
         <View style={s.hero}>
-          <View style={s.heroGlow} />
-          {assetsReady ? (
-            <Image source={APP_LOGO} style={s.logo} resizeMode="contain" />
-          ) : (
-            <ActivityIndicator color="#111" />
-          )}
+          <Image source={APP_LOGO} style={s.logo} resizeMode="contain" />
         </View>
 
         <Animated.View layout={LinearTransition.springify().damping(18)} style={s.sheet}>
@@ -137,6 +134,8 @@ export function AuthScreen() {
           {mode === "entry" ? (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
               <PrimaryButton
+                styles={s}
+                palette={palette}
                 label={tr(messages, "auth.continuePhone")}
                 disabled={!!busy}
                 onPress={() => {
@@ -149,11 +148,15 @@ export function AuthScreen() {
           ) : mode === "phone" ? (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
               <PhoneField
+                styles={s}
+                palette={palette}
                 value={phone}
                 onChangeText={setPhone}
                 placeholder={tr(messages, "auth.phone")}
               />
               <PrimaryButton
+                styles={s}
+                palette={palette}
                 label={tr(messages, "common.continue")}
                 loading={busy === "phone"}
                 disabled={!!busy}
@@ -164,21 +167,31 @@ export function AuthScreen() {
                 })}
               />
               <GhostButton
+                styles={s}
                 label={tr(messages, "common.back")}
                 onPress={() => setMode("entry")}
               />
             </Animated.View>
           ) : (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
+              {/* Heetch-style OTP identity: huge uppercase heavy title, minimal
+                  dash-shaped code field, muted secondary text. */}
+              <Text style={s.otpTitle}>
+                {tr(messages, "auth.verifyOtp").toUpperCase()}
+              </Text>
               <Text style={[s.otpHint, { textAlign: align }]}>
                 {`${tr(messages, "auth.otpSentTo")} ${phone}`}
               </Text>
               <OtpField
+                styles={s}
+                palette={palette}
                 value={code}
                 onChangeText={setCode}
                 placeholder={tr(messages, "auth.otp")}
               />
               <PrimaryButton
+                styles={s}
+                palette={palette}
                 label={tr(messages, "auth.verifyOtp")}
                 loading={busy === "otp"}
                 disabled={!!busy || !confirmation}
@@ -188,6 +201,7 @@ export function AuthScreen() {
                 })}
               />
               <GhostButton
+                styles={s}
                 label={tr(messages, "common.back")}
                 onPress={() => setMode("phone")}
               />
@@ -201,24 +215,24 @@ export function AuthScreen() {
 
 // Language switcher: shows ONLY the current language's flag. Tapping it reveals
 // the other flags; picking one switches the whole app's language instantly.
-function LanguagePicker() {
+function LanguagePicker({ styles }: { styles: Styles }) {
   const locale = useLocaleStore((state) => state.locale);
   const setLocale = useLocaleStore((state) => state.setLocale);
   const [open, setOpen] = useState(false);
   const others = SUPPORTED_LOCALES.filter((l) => l !== locale);
 
   return (
-    <View style={s.langWrap}>
+    <View style={styles.langWrap}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`language: ${locale}`}
         onPress={() => setOpen((v) => !v)}
-        style={({ pressed }) => [s.flagBtn, pressed && s.pressed]}
+        style={({ pressed }) => [styles.flagBtn, pressed && styles.pressed]}
       >
-        <Image source={FLAGS[locale]} style={s.flag} />
+        <Image source={FLAGS[locale]} style={styles.flag} />
       </Pressable>
       {open ? (
-        <View style={s.langMenu}>
+        <View style={styles.langMenu}>
           {others.map((l) => (
             <Pressable
               key={l}
@@ -228,9 +242,9 @@ function LanguagePicker() {
                 setOpen(false);
                 void setLocale(l);
               }}
-              style={({ pressed }) => [s.flagBtn, pressed && s.pressed]}
+              style={({ pressed }) => [styles.flagBtn, pressed && styles.pressed]}
             >
-              <Image source={FLAGS[l]} style={s.flag} />
+              <Image source={FLAGS[l]} style={styles.flag} />
             </Pressable>
           ))}
         </View>
@@ -240,11 +254,15 @@ function LanguagePicker() {
 }
 
 function PrimaryButton({
+  styles,
+  palette,
   label,
   onPress,
   loading = false,
   disabled = false,
 }: {
+  styles: Styles;
+  palette: Palette;
   label: string;
   onPress: () => void;
   loading?: boolean;
@@ -256,24 +274,26 @@ function PrimaryButton({
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [
-        s.primary,
-        (disabled || loading) && s.dim,
-        pressed && s.pressed,
+        styles.primary,
+        (disabled || loading) && styles.dim,
+        pressed && styles.pressed,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color="#fff" />
+        <ActivityIndicator color={palette.onPrimary} />
       ) : (
-        <Text style={s.primaryText}>{label}</Text>
+        <Text style={styles.primaryText}>{label}</Text>
       )}
     </Pressable>
   );
 }
 
 function GhostButton({
+  styles,
   label,
   onPress,
 }: {
+  styles: Styles;
   label: string;
   onPress: () => void;
 }) {
@@ -281,45 +301,53 @@ function GhostButton({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [s.ghost, pressed && s.pressed]}
+      style={({ pressed }) => [styles.ghost, pressed && styles.pressed]}
     >
-      <Text style={s.ghostText}>{label}</Text>
+      <Text style={styles.ghostText}>{label}</Text>
     </Pressable>
   );
 }
 
 function PhoneField({
+  styles,
+  palette,
   value,
   onChangeText,
   placeholder,
 }: {
+  styles: Styles;
+  palette: Palette;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
 }) {
   return (
-    <View style={s.phoneRow}>
-      <View style={s.prefix}>
-        <Text style={s.prefixText}>+213</Text>
+    <View style={styles.phoneRow}>
+      <View style={styles.prefix}>
+        <Text style={styles.prefixText}>+213</Text>
       </View>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#9AA0A9"
+        placeholderTextColor={palette.textMuted}
         keyboardType="phone-pad"
         maxLength={15}
-        style={s.phoneInput}
+        style={styles.phoneInput}
       />
     </View>
   );
 }
 
 function OtpField({
+  styles,
+  palette,
   value,
   onChangeText,
   placeholder,
 }: {
+  styles: Styles;
+  palette: Palette;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
@@ -329,149 +357,154 @@ function OtpField({
       value={value}
       onChangeText={onChangeText}
       placeholder={placeholder}
-      placeholderTextColor="#C2C6CD"
+      placeholderTextColor={palette.textMuted}
       keyboardType="number-pad"
       maxLength={6}
-      style={s.otpInput}
+      style={styles.otpInput}
     />
   );
 }
 
-const s = StyleSheet.create({
-  flex: { flex: 1 },
-  safe: { flex: 1, backgroundColor: "#FFFFFF" },
-  header: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingHorizontal: 28,
-    paddingTop: 12,
-    zIndex: 20,
-  },
-  headerText: { flex: 1 },
-  brand: {
-    fontSize: 34,
-    fontWeight: "900",
-    letterSpacing: -1,
-    color: "#1B1B1F",
-  },
-  brandGo: {
-    color: "#D9A520",
-    fontSize: 34,
-    fontWeight: "900",
-    letterSpacing: -1,
-  },
-  tagline: { marginTop: 6, fontSize: 15, color: "#6B7280", fontWeight: "600" },
-  // Language switcher
-  langWrap: { position: "relative", marginLeft: 12, zIndex: 30 },
-  flagBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F3F4F6",
-  },
-  flag: { width: 34, height: 34, borderRadius: 17 },
-  langMenu: {
-    position: "absolute",
-    top: 50,
-    right: 0,
-    padding: 6,
-    gap: 8,
-    borderRadius: 26,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#ECECEC",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  hero: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    marginVertical: 8,
-  },
-  heroGlow: {
-    position: "absolute",
-    width: 264,
-    height: 264,
-    borderRadius: 132,
-    backgroundColor: "#F3F4F6",
-  },
-  logo: {
-    width: 240,
-    height: 240,
-  },
-  sheet: {
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 10,
-    gap: 14,
-  },
-  gap: { gap: 12 },
-  error: {
-    color: "#B42318",
-    fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  primary: {
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: "#0E0E10",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
-  ghost: { height: 48, alignItems: "center", justifyContent: "center" },
-  ghostText: { color: "#6B7280", fontSize: 15, fontWeight: "700" },
-  dim: { opacity: 0.5 },
-  pressed: { opacity: 0.85 },
-  legal: {
-    color: "#9AA0A9",
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: "center",
-    marginTop: 4,
-  },
-  otpHint: { color: "#4B5563", fontSize: 14, fontWeight: "600" },
-  phoneRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  prefix: {
-    height: 56,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E1E3E8",
-    backgroundColor: "#F9FAFB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  prefixText: { fontSize: 16, fontWeight: "800", color: "#111111" },
-  phoneInput: {
-    flex: 1,
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E1E3E8",
-    paddingHorizontal: 16,
-    fontSize: 18,
-    color: "#111111",
-    textAlign: "left",
-  },
-  otpInput: {
-    height: 60,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E1E3E8",
-    paddingHorizontal: 16,
-    fontSize: 24,
-    letterSpacing: 8,
-    color: "#111111",
-    textAlign: "center",
-  },
-});
+// All colours come from the active palette (light / dark) — no literal hex.
+function makeStyles(palette: Palette) {
+  return StyleSheet.create({
+    flex: { flex: 1 },
+    safe: { flex: 1, backgroundColor: palette.bg },
+    header: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      paddingHorizontal: 28,
+      paddingTop: 12,
+      zIndex: 20,
+    },
+    headerText: { flex: 1 },
+    brand: {
+      fontSize: 34,
+      fontWeight: "900",
+      letterSpacing: -1,
+      color: palette.text,
+    },
+    brandGo: {
+      color: palette.accent,
+      fontSize: 34,
+      fontWeight: "900",
+      letterSpacing: -1,
+    },
+    tagline: {
+      marginTop: 6,
+      fontSize: 15,
+      color: palette.textMuted,
+      fontWeight: "600",
+    },
+    // Language switcher
+    langWrap: { position: "relative", marginLeft: 12, zIndex: 30 },
+    flagBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: palette.surfaceAlt,
+    },
+    flag: { width: 34, height: 34, borderRadius: 17 },
+    langMenu: {
+      position: "absolute",
+      top: 50,
+      right: 0,
+      padding: 6,
+      gap: 8,
+      borderRadius: 26,
+      backgroundColor: palette.surface,
+      borderWidth: 1,
+      borderColor: palette.border,
+      alignItems: "center",
+    },
+    hero: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      marginVertical: 8,
+    },
+    logo: {
+      width: 240,
+      height: 240,
+    },
+    sheet: {
+      paddingHorizontal: 24,
+      paddingTop: 18,
+      paddingBottom: 10,
+      gap: 14,
+    },
+    gap: { gap: 12 },
+    error: {
+      color: palette.danger,
+      fontSize: 14,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    primary: {
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: palette.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    primaryText: { color: palette.onPrimary, fontSize: 16, fontWeight: "800" },
+    ghost: { height: 48, alignItems: "center", justifyContent: "center" },
+    ghostText: { color: palette.textMuted, fontSize: 15, fontWeight: "700" },
+    dim: { opacity: 0.5 },
+    pressed: { opacity: 0.85 },
+    legal: {
+      color: palette.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      textAlign: "center",
+      marginTop: 4,
+    },
+    otpTitle: {
+      color: palette.text,
+      fontSize: 32,
+      fontWeight: "900",
+      letterSpacing: -0.5,
+    },
+    otpHint: { color: palette.textMuted, fontSize: 14, fontWeight: "600" },
+    phoneRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    prefix: {
+      height: 56,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    prefixText: { fontSize: 16, fontWeight: "800", color: palette.text },
+    phoneInput: {
+      flex: 1,
+      height: 56,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+      paddingHorizontal: 16,
+      fontSize: 18,
+      color: palette.text,
+      textAlign: "left",
+    },
+    // Minimal "dashes" code field: no box, just an underline per the Heetch
+    // reference, with wide letter spacing so digits read as separate dashes.
+    otpInput: {
+      height: 60,
+      borderBottomWidth: 2,
+      borderBottomColor: palette.border,
+      paddingHorizontal: 4,
+      fontSize: 28,
+      fontWeight: "900",
+      letterSpacing: 14,
+      color: palette.text,
+      textAlign: "center",
+    },
+  });
+}

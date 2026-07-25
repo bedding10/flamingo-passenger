@@ -5,9 +5,9 @@
     "scheme": "flamingo",
     "version": "0.3.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
-      "**/*"
+      "assets/*.png"
     ],
     "newArchEnabled": false,
     "platforms": [
@@ -23,7 +23,6 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "flaminGO uses your location to set pickup and show ride options.",
-        "NSPhotoLibraryUsageDescription": "flaminGO uses your selected photo for your passenger profile.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "buildNumber": "1"
@@ -33,8 +32,7 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "RECORD_AUDIO"
+        "POST_NOTIFICATIONS"
       ],
       "intentFilters": [
         {
@@ -63,12 +61,6 @@
     "plugins": [
       "@react-native-firebase/app",
       "expo-secure-store",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "flaminGO uses your selected photo for your passenger profile."
-        }
-      ],
       "expo-location",
       "@react-native-firebase/crashlytics",
       [
@@ -105,15 +97,15 @@
     "jsEngine": "hermes",
     "extra": {
       "eas": {
-        "projectId": "eab5a346-a3f9-4d85-90a5-a520ab21b402"
+        "projectId": "ac734c75-f867-4cb8-9884-41eeb9072eb4"
       }
     },
-    "owner": "taha122s-team",
+    "owner": "nova112",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/eab5a346-a3f9-4d85-90a5-a520ab21b402"
+      "url": "https://u.expo.dev/ac734c75-f867-4cb8-9884-41eeb9072eb4"
     }
   }
 }

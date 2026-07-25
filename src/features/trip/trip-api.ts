@@ -129,10 +129,19 @@ export const passengerApi = {
     });
     return data;
   },
-  propose: async (id: string, fare: number) =>
-    (await api.post(`/fare-quotes/${id}/propose`, { fare })).data,
+  // `note` is only sent when the passenger actually typed a message, so the
+  // existing { fare } payload stays byte-identical when the field is empty.
+  propose: async (id: string, fare: number, note?: string) =>
+    (
+      await api.post(`/fare-quotes/${id}/propose`, {
+        fare,
+        ...(note && note.trim() ? { note: note.trim() } : {}),
+      })
+    ).data,
   offers: async (id: string) =>
     (await api.get<FareOffer[]>(`/fare-quotes/${id}/offers`)).data,
   acceptOffer: async (id: string, offerId: string) =>
     (await api.post<Trip>(`/fare-quotes/${id}/offers/${offerId}/accept`)).data,
+  rejectOffer: async (id: string, offerId: string) =>
+    (await api.post(`/fare-quotes/${id}/offers/${offerId}/reject`)).data,
 };

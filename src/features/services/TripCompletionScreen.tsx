@@ -2,14 +2,14 @@ import React, { useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Card, Field, Loading, Message, PrimaryButton, Screen, SecondaryButton, ui } from "../../components/PassengerScreen";
+import { Card, Field, Loading, Message, PrimaryButton, Screen, SecondaryButton, useUi } from "../../components/PassengerScreen";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi } from "../../core/passenger-api";
 import { useMessages } from "../../core/use-messages";
 import type { RootStackParamList } from "../../navigation/types";
 
 export function TripCompletionScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "TripCompletion">) {
-  const { messages } = useMessages();
+  const { messages } = useMessages(), ui = useUi();
   const [stars, setStars] = useState(0);
   const [comment, setComment] = useState("");
   const [report, setReport] = useState("");

@@ -57,6 +57,13 @@ export interface FareOffer {
   id: string;
   fare: number;
   status: string;
+  currency?: string;
+  /** ISO date; when the server sends it the UI shows a live countdown. */
+  expiresAt?: string;
+  createdAt?: string;
+  /** رسالة السائق المرفقة بعرضه. */
+  note?: string | null;
+  etaMinutes?: number | null;
   driver?: { id?: string; name?: string; rating?: number };
 }
 export interface Quote {

@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
-import * as ImagePicker from "expo-image-picker";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -13,12 +13,12 @@ import { api } from "../../core/api";
 import type { Gender } from "../../core/contracts";
 import { loadTranslations, tr } from "../../core/i18n";
 import { useSession } from "../../core/session-store";
+import { useTheme } from "../../core/theme-store";
+import type { Palette } from "../../core/theme";
 
 // صورتا اختيار الجنس (ذكر/أنثى) المرفقتان — مجمّعتان داخل التطبيق.
 const MALE_ICON = require("../../../assets/gender-male.png") as number;
 const FEMALE_ICON = require("../../../assets/gender-female.png") as number;
-// الصورة الافتراضية الدائرية للملف الشخصي عند عدم رفع صورة.
-const DEFAULT_AVATAR = require("../../../assets/default-avatar.png") as number;
 
 // في صفحة إكمال الملف الشخصي نكتفي بـ ذكر/أنثى عبر الصورتين.
 const GENDER_OPTIONS: { value: Gender; icon: number }[] = [
@@ -26,65 +26,22 @@ const GENDER_OPTIONS: { value: Gender; icon: number }[] = [
   { value: "FEMALE", icon: FEMALE_ICON },
 ];
 
+// ملاحظة: أُزيلت الصورة الشخصية بالكامل من تطبيق الراكب (ستُعتمد لاحقاً في
+// تطبيق السائق فقط). هذه الصفحة تكتفي بالاسم والجنس.
 export function ProfileScreen() {
   const restore = useSession((state) => state.restore);
+  const { palette } = useTheme();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
   const [messages, setMessages] = useState<Record<string, string>>({});
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // اللغة ثابتة (العربية) في هذه الصفحة — لم نعد نعرض اختيار اللغات هنا.
   useEffect(() => {
     loadTranslations()
       .then(setMessages)
       .catch(() => undefined);
   }, []);
-
-  // يرفع الصورة المختارة إلى التخزين ويحفظ رابط العرض.
-  async function uploadAsset(asset: ImagePicker.ImagePickerAsset) {
-    setUploading(true);
-    try {
-      const contentType = asset.mimeType ?? "image/jpeg";
-      const { data } = await api.post<{ uploadUrl: string; readUrl: string }>(
-        "/passenger/me/upload-url",
-        { contentType },
-      );
-      const body = await fetch(asset.uri).then((response) => response.blob());
-      await fetch(data.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body,
-      });
-      setAvatarUrl(data.readUrl);
-    } catch (error) {
-      Alert.alert(
-        tr(messages, "profile.choosePhoto"),
-        tr(messages, "profile.photoUploadFailed"),
-      );
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  // يفتح معرض صور الهاتف مباشرة لاختيار صورة (بدون كاميرا/سيلفي).
-  async function pickFromLibrary() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.82,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    await uploadAsset(result.assets[0]);
-  }
-
-  // عند الضغط على الدائرة: يفتح معرض الصور مباشرة.
-  function onAvatarPress() {
-    if (uploading) return;
-    void pickFromLibrary();
-  }
 
   async function save() {
     if (!name.trim() || !gender || saving) return;
@@ -92,9 +49,7 @@ export function ProfileScreen() {
     try {
       await api.patch("/passenger/me", {
         name: name.trim(),
-        locale: "ar",
         gender,
-        ...(avatarUrl ? { avatarUrl } : {}),
       });
       await restore();
     } catch (error) {
@@ -107,77 +62,35 @@ export function ProfileScreen() {
     }
   }
 
-  const canContinue = !!name.trim() && !!gender && !uploading && !saving;
+  const canContinue = !!name.trim() && !!gender && !saving;
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        gap: 24,
-        padding: 24,
-        backgroundColor: "#fff",
-      }}
-    >
-      <Text
-        style={{
-          fontSize: 28,
-          fontWeight: "700",
-          color: "#111",
-          textAlign: "center",
-        }}
-      >
+    <View style={styles.root}>
+      <Text style={styles.title}>
         {tr(messages, "profile.completeTitle")}
       </Text>
-
-      {/* دائرة صورة الملف الشخصي */}
-      <View style={{ alignItems: "center" }}>
-        <Pressable onPress={onAvatarPress} style={avatarCircle}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={avatarImage} />
-          ) : (
-            <Image
-              source={DEFAULT_AVATAR}
-              style={avatarImage}
-              resizeMode="cover"
-            />
-          )}
-          {uploading ? (
-            <View style={avatarOverlay}>
-              <ActivityIndicator color="#fff" />
-            </View>
-          ) : null}
-        </Pressable>
-        <Text style={{ marginTop: 10, color: "#666", fontSize: 13 }}>
-          {tr(messages, "profile.choosePhoto")}
-        </Text>
-      </View>
 
       {/* الاسم */}
       <TextInput
         value={name}
         onChangeText={setName}
         placeholder={tr(messages, "profile.name")}
-        style={input}
+        placeholderTextColor={palette.textMuted}
+        style={styles.input}
       />
 
       {/* اختيار الجنس عبر الصورتين */}
-      <View style={{ flexDirection: "row", gap: 16, justifyContent: "center" }}>
+      <View style={styles.genderRow}>
         {GENDER_OPTIONS.map((option) => {
           const active = gender === option.value;
           return (
             <Pressable
               key={option.value}
               onPress={() => setGender(option.value)}
-              style={[genderCard, active && genderCardActive]}
+              style={[styles.genderCard, active && styles.genderCardActive]}
             >
-              <Image source={option.icon} style={genderImage} resizeMode="contain" />
-              <Text
-                style={{
-                  fontWeight: active ? "700" : "500",
-                  color: active ? "#111" : "#666",
-                }}
-              >
+              <Image source={option.icon} style={styles.genderImage} resizeMode="contain" />
+              <Text style={[styles.genderLabel, active && styles.genderLabelActive]}>
                 {tr(messages, `gender.${option.value}`)}
               </Text>
             </Pressable>
@@ -189,12 +102,12 @@ export function ProfileScreen() {
       <Pressable
         onPress={save}
         disabled={!canContinue}
-        style={[button, !canContinue && { opacity: 0.35 }]}
+        style={[styles.button, !canContinue && styles.disabled]}
       >
         {saving ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={palette.onPrimary} />
         ) : (
-          <Text style={{ color: "#fff", fontWeight: "600", fontSize: 16 }}>
+          <Text style={styles.buttonText}>
             {tr(messages, "common.continue")}
           </Text>
         )}
@@ -203,63 +116,58 @@ export function ProfileScreen() {
   );
 }
 
-const input = {
-  height: 56,
-  borderWidth: 1,
-  borderColor: "#ddd",
-  borderRadius: 12,
-  padding: 16,
-  textAlign: "right",
-} as const;
-const avatarCircle = {
-  width: 140,
-  height: 140,
-  borderRadius: 70,
-  borderWidth: 1,
-  borderColor: "#E5E5E5",
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: "#fafafa",
-  overflow: "hidden",
-} as const;
-const avatarImage = {
-  width: "100%",
-  height: "100%",
-} as const;
-const avatarOverlay = {
-  position: "absolute",
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: "rgba(0,0,0,0.35)",
-} as const;
-const genderCard = {
-  flex: 1,
-  maxWidth: 160,
-  alignItems: "center",
-  gap: 8,
-  paddingVertical: 16,
-  borderWidth: 1,
-  borderColor: "#ddd",
-  borderRadius: 16,
-  backgroundColor: "#fff",
-} as const;
-const genderCardActive = {
-  borderColor: "#111",
-  borderWidth: 2,
-  backgroundColor: "#f4f4f4",
-} as const;
-const genderImage = {
-  width: 88,
-  height: 88,
-} as const;
-const button = {
-  height: 56,
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: "#111",
-  borderRadius: 12,
-} as const;
+function makeStyles(palette: Palette) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      justifyContent: "center",
+      gap: 24,
+      padding: 24,
+      backgroundColor: palette.bg,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: "900",
+      color: palette.text,
+      textAlign: "center",
+    },
+    input: {
+      height: 56,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+      color: palette.text,
+      borderRadius: 12,
+      padding: 16,
+    },
+    genderRow: { flexDirection: "row", gap: 16, justifyContent: "center" },
+    genderCard: {
+      flex: 1,
+      maxWidth: 160,
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 16,
+      borderWidth: 1,
+      borderColor: palette.border,
+      borderRadius: 16,
+      backgroundColor: palette.surface,
+    },
+    genderCardActive: {
+      borderColor: palette.primary,
+      borderWidth: 2,
+      backgroundColor: palette.surfaceAlt,
+    },
+    genderImage: { width: 88, height: 88 },
+    genderLabel: { fontWeight: "500", color: palette.textMuted },
+    genderLabelActive: { fontWeight: "800", color: palette.text },
+    button: {
+      height: 56,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: palette.primary,
+      borderRadius: 12,
+    },
+    buttonText: { color: palette.onPrimary, fontWeight: "800", fontSize: 16 },
+    disabled: { opacity: 0.35 },
+  });
+}

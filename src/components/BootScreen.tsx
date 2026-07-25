@@ -1,6 +1,9 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Image, View } from "react-native";
+import { useTheme } from "../core/theme-store";
+
 export function BootScreen() {
+  const { palette } = useTheme();
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(v, {
@@ -13,7 +16,7 @@ export function BootScreen() {
     <View
       style={{
         flex: 1,
-        backgroundColor: "#fff",
+        backgroundColor: palette.bg,
         alignItems: "center",
         justifyContent: "center",
       }}

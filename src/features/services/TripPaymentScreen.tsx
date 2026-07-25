@@ -2,14 +2,14 @@ import React from "react";
 import { Linking, Text } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Card, Loading, Message, PrimaryButton, Row, Screen, money, ui } from "../../components/PassengerScreen";
+import { Card, Loading, Message, PrimaryButton, Row, Screen, money, useUi } from "../../components/PassengerScreen";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi, type PassengerPaymentMethod } from "../../core/passenger-api";
 import { useMessages } from "../../core/use-messages";
 import type { RootStackParamList } from "../../navigation/types";
 
 export function TripPaymentScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "TripPayment">) {
-  const { messages } = useMessages();
+  const { messages } = useMessages(), ui = useUi();
   const client = useQueryClient();
   const methods = useQuery({ queryKey: ["passenger-payment-methods"], queryFn: passengerServicesApi.paymentMethods });
   const payment = useQuery({ queryKey: ["trip-payment", route.params.tripId], queryFn: () => passengerServicesApi.tripPayment(route.params.tripId) });

@@ -9,6 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
         "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM"
       }
@@ -17,6 +18,7 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
         "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM"
       },
@@ -28,6 +30,7 @@
       "autoIncrement": true,
       "channel": "production",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
         "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
         "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM"
       },

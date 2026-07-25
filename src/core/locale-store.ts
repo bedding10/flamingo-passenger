@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { I18nManager } from "react-native";
 import { cache } from "./storage";
 import { loadTranslations } from "./i18n";
 import { fallbackFor } from "./i18n-fallback";
@@ -41,9 +40,8 @@ export const useLocaleStore = create<LocaleState>()((set, get) => ({
   setLocale: async (locale) => {
     if (get().locale === locale) return;
     cache.set(LOCALE_KEY, locale);
-    // Direction change fully applies on next app launch; text switches now.
-    I18nManager.allowRTL(true);
-    I18nManager.forceRTL(isRTLLocale(locale));
+    // Language ONLY: never flip the app's layout direction when switching
+    // language. The whole UI stays LTR regardless of locale.
     set({ locale, messages: fallbackFor(locale), loadedLocale: null });
     const messages = await loadTranslations(locale);
     set({ messages, loadedLocale: locale });

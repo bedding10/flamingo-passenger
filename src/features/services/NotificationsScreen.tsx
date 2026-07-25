@@ -3,14 +3,14 @@ import { Linking, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { FlashList } from "@shopify/flash-list";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, Loading, Message, PrimaryButton, Screen, SecondaryButton, day, ui } from "../../components/PassengerScreen";
+import { Card, Loading, Message, PrimaryButton, Screen, SecondaryButton, day, useUi } from "../../components/PassengerScreen";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi, type NotificationItem } from "../../core/passenger-api";
 import { useMessages } from "../../core/use-messages";
 import type { RootStackParamList } from "../../navigation/types";
 
 export function NotificationsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Notifications">) {
-  const { locale, messages } = useMessages();
+  const { locale, messages } = useMessages(), ui = useUi();
   const client = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: ["notifications"],
