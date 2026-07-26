@@ -96,8 +96,10 @@ export function withAlpha(color: string, alpha: number): string {
 
 export const NIGHT_MAP_JSON = [
   { elementType: "geometry", stylers: [{ color: "#0A0D12" }] },
-  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#9AA0A9" }] },
+  // Rich map: shop / mall / landmark icons and names stay visible so the map
+  // never looks empty (Heetch-like level of detail).
+  { elementType: "labels.icon", stylers: [{ visibility: "on" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#C9CCD2" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#0B0B0C" }] },
   {
     featureType: "administrative",
@@ -109,15 +111,48 @@ export const NIGHT_MAP_JSON = [
     elementType: "labels.text.fill",
     stylers: [{ color: "#C9CCD2" }],
   },
+  { featureType: "poi", stylers: [{ visibility: "on" }] },
+  {
+    featureType: "poi",
+    elementType: "geometry",
+    stylers: [{ color: "#171C24" }],
+  },
   {
     featureType: "poi",
     elementType: "labels.text.fill",
-    stylers: [{ color: "#6B7280" }],
+    stylers: [{ color: "#B9BEC6" }],
+  },
+  // Shops, malls, restaurants and services: kept on, labelled in gold.
+  { featureType: "poi.business", stylers: [{ visibility: "on" }] },
+  {
+    featureType: "poi.business",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#D4AF37" }],
+  },
+  {
+    featureType: "poi.attraction",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#D4AF37" }],
+  },
+  {
+    featureType: "poi.medical",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#E6B8B0" }],
+  },
+  {
+    featureType: "poi.school",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#AFC3D8" }],
   },
   {
     featureType: "poi.park",
     elementType: "geometry",
-    stylers: [{ color: "#12181B" }],
+    stylers: [{ color: "#14231A" }],
+  },
+  {
+    featureType: "poi.park",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#8FB79A" }],
   },
   { featureType: "road", elementType: "geometry", stylers: [{ color: "#2A2F38" }] },
   {
@@ -135,10 +170,16 @@ export const NIGHT_MAP_JSON = [
     elementType: "geometry",
     stylers: [{ color: "#39404B" }],
   },
+  { featureType: "transit", stylers: [{ visibility: "on" }] },
   {
     featureType: "transit",
     elementType: "geometry",
     stylers: [{ color: "#1E1E22" }],
+  },
+  {
+    featureType: "transit.station",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#AFB5BE" }],
   },
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#070C14" }] },
   {
@@ -153,19 +194,39 @@ export const NIGHT_MAP_JSON = [
 // card stays the loudest element on screen.
 export const DAY_MAP_JSON = [
   { elementType: "geometry", stylers: [{ color: "#F6F6F7" }] },
-  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#7B818B" }] },
+  // Rich map: POI icons stay visible so shops and landmarks are readable.
+  { elementType: "labels.icon", stylers: [{ visibility: "on" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#5F656E" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
   { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#E4E5E8" }] },
-  { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#EAEEE9" }] },
+  { featureType: "poi", stylers: [{ visibility: "on" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#EFEFF1" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#6B7280" }] },
+  { featureType: "poi.business", stylers: [{ visibility: "on" }] },
+  {
+    featureType: "poi.business",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#8A6D1F" }],
+  },
+  {
+    featureType: "poi.attraction",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#8A6D1F" }],
+  },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#E4EDE3" }] },
+  { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#5C8767" }] },
   { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
   { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#E6E7EA" }] },
   { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9AA0A9" }] },
   { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#FDFDFD" }] },
   { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#EFEFF1" }] },
   { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#DFE0E4" }] },
-  { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "on" }] },
+  {
+    featureType: "transit.station",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#6B7280" }],
+  },
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#DDE3EA" }] },
   { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#A7AEB8" }] },
 ] as const;

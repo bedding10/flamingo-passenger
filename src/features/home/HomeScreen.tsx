@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import MapView, { AnimatedRegion, LatLng, Marker, Polyline, type Region } from "react-native-maps";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 import * as Location from "expo-location";
 import { FlashList } from "@shopify/flash-list";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -132,6 +133,141 @@ const THEME_ICON: Record<string, string> = {
   dark: "\u25D1",
 };
 
+// ---------------------------------------------------------------------------
+// flaminGO map pin (gold) — replaces the old grey dot / square markers.
+//
+// One shared geometry for both pins so pickup and drop-off are pixel identical:
+// gold circular head, black glyph inside, long gold stem, gold speech bubble
+// on top. While the map is being dragged a detached gold dot is shown under the
+// stem; once the point is snapped to the road the dot disappears.
+//
+// Pure UI: the pin never touches the map, geocoding or snapping logic.
+// ---------------------------------------------------------------------------
+const PIN = {
+  head: 44,
+  stem: 32,
+  stemWidth: 5,
+  dot: 9,
+  dotGap: 7,
+  glyph: 22,
+  gold: "#D4AF37",
+  ink: "#111111",
+} as const;
+export const PIN_TOTAL_HEIGHT = PIN.head + PIN.stem + PIN.dotGap + PIN.dot;
+
+// Gold person glyph (pickup) drawn in black on the gold head.
+function PersonGlyph({ color }: { color: string }) {
+  return (
+    <Svg width={PIN.glyph} height={PIN.glyph} viewBox="0 0 24 24">
+      <Circle cx={12} cy={8} r={3.6} fill={color} />
+      <Path
+        d="M4.6 19.6c0-3.8 3.3-6.4 7.4-6.4s7.4 2.6 7.4 6.4a.9.9 0 0 1-.9.9H5.5a.9.9 0 0 1-.9-.9Z"
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
+// Checkered finish flag glyph (drop-off), same size as the person glyph.
+function FlagGlyph({ color }: { color: string }) {
+  const cell = 3;
+  const x0 = 8.4;
+  const y0 = 5.2;
+  const squares: React.ReactElement[] = [];
+  for (let row = 0; row < 3; row += 1) {
+    for (let col = 0; col < 3; col += 1) {
+      if ((row + col) % 2 !== 0) continue;
+      squares.push(
+        <Rect
+          key={`${row}-${col}`}
+          x={x0 + col * cell}
+          y={y0 + row * cell}
+          width={cell}
+          height={cell}
+          fill={color}
+        />,
+      );
+    }
+  }
+  return (
+    <Svg width={PIN.glyph} height={PIN.glyph} viewBox="0 0 24 24">
+      <Path d="M6.4 3.8V20.2" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Rect
+        x={x0 - 1}
+        y={y0 - 1}
+        width={cell * 3 + 2}
+        height={cell * 3 + 2}
+        rx={1}
+        stroke={color}
+        strokeWidth={1.4}
+        fill="none"
+      />
+      {squares}
+    </Svg>
+  );
+}
+
+// kind: "pickup" (person glyph, solid gold head) or "dropoff" (flag glyph,
+// gold ring head). dragging: shows the detached dot under the stem.
+function FlamingoPin({
+  kind,
+  label,
+  dragging,
+  styles,
+}: {
+  kind: "pickup" | "dropoff";
+  label?: string;
+  dragging?: boolean;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const solid = kind === "pickup";
+  return (
+    <View pointerEvents="none" style={styles.pinRoot}>
+      {label ? (
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(160)}
+          style={styles.pinBubbleWrap}
+        >
+          <View style={styles.pinBubble}>
+            <Text numberOfLines={1} style={styles.pinBubbleText}>
+              {label}
+            </Text>
+          </View>
+          <Svg width={16} height={8} style={styles.pinBubbleTail}>
+            <Path d="M0 0 H16 L8 8 Z" fill={PIN.gold} />
+          </Svg>
+        </Animated.View>
+      ) : null}
+      <View style={styles.pinHeadWrap}>
+        <Svg width={PIN.head} height={PIN.head} style={StyleSheet.absoluteFill}>
+          <Circle
+            cx={PIN.head / 2}
+            cy={PIN.head / 2}
+            r={PIN.head / 2 - 2}
+            fill={solid ? PIN.gold : PIN.ink}
+            stroke={PIN.gold}
+            strokeWidth={solid ? 0 : 3.5}
+          />
+        </Svg>
+        {solid ? (
+          <PersonGlyph color={PIN.ink} />
+        ) : (
+          <FlagGlyph color={PIN.gold} />
+        )}
+      </View>
+      <View style={styles.pinStem} />
+      {dragging ? (
+        <Animated.View
+          entering={FadeIn.duration(160)}
+          exiting={FadeOut.duration(140)}
+          style={styles.pinDot}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
   const profile = useSession((s) => s.profile);
   const { palette, name: themeName, setMode } = useTheme();
@@ -148,6 +284,9 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   // Optional Uber/Heetch style centre-pin picking for the active point.
   const [pinMode, setPinMode] = useState<SearchTarget | null>(null);
   const [pinAddress, setPinAddress] = useState<string>("");
+  // True while the map is moving under the centre pin: shows the detached gold
+  // dot and hides it again as soon as the point is snapped to the road.
+  const [pinDragging, setPinDragging] = useState(false);
   const pinRegion = useRef<Region | null>(null);
   const [selected, setSelected] = useState<VehicleType | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -409,6 +548,9 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         } catch (e) {
           reportError(e, "home.reverseGeocode");
           setPinAddress("");
+        } finally {
+          // Snapped state: detached dot disappears, bubble stays.
+          setPinDragging(false);
         }
       })();
     },
@@ -424,6 +566,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     });
     setPinMode(null);
     setPinAddress("");
+    setPinDragging(false);
   };
 
   const quoteMutation = useMutation({
@@ -659,20 +802,31 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           latitudeDelta: 0.035,
           longitudeDelta: 0.035,
         }}
+        onRegionChange={() => {
+          if (pinMode && !pinDragging) setPinDragging(true);
+        }}
         onRegionChangeComplete={onRegionChangeComplete}
         showsUserLocation
         showsMyLocationButton={false}
         toolbarEnabled={false}
+        /* Full map detail: shops, malls, landmarks, buildings and transit. */
+        showsPointsOfInterest
+        showsBuildings
+        showsIndoors
+        showsTraffic={false}
       >
-{/* Monochrome markers: round for the pickup, square for the drop-off. */}
+        {/* flaminGO gold pins: person head for the pickup, checkered flag for
+            the drop-off. Identical geometry, gold speech bubble on top. */}
         <Marker
           coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-          anchor={{ x: 0.5, y: 0.5 }}
+          anchor={{ x: 0.5, y: 1 }}
           tracksViewChanges={false}
         >
-          <View style={styles.pickupMarker}>
-            <View style={styles.pickupMarkerCore} />
-          </View>
+          <FlamingoPin
+            kind="pickup"
+            label={tr(messages, "home.pickupHere")}
+            styles={styles}
+          />
         </Marker>
         {destination ? (
           <Marker
@@ -680,12 +834,14 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
               latitude: destination.lat,
               longitude: destination.lng,
             }}
-            anchor={{ x: 0.5, y: 0.5 }}
+            anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <View style={styles.destinationMarker}>
-              <Text style={styles.destinationFlag}>{"\u2691"}</Text>
-            </View>
+            <FlamingoPin
+              kind="dropoff"
+              label={tr(messages, "home.dropoffHere")}
+              styles={styles}
+            />
           </Marker>
         ) : null}
         {stops.map((stop, index) =>
@@ -800,11 +956,19 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         </Animated.View>
       ) : null}
 
-      {/* Centre pin: optional way to set the active point by dragging the map. */}
+      {/* Centre pin: drag the map to place the active point. Detached gold dot
+          while dragging, dot removed once the point snaps to the road. */}
       {pinMode ? (
         <View pointerEvents="none" style={styles.pinWrap}>
-          <View style={styles.pinHead} />
-          <View style={styles.pinStem} />
+          <FlamingoPin
+            kind={pinMode === "pickup" ? "pickup" : "dropoff"}
+            label={tr(
+              messages,
+              pinMode === "pickup" ? "home.pickupHere" : "home.dropoffHere",
+            )}
+            dragging={pinDragging}
+            styles={styles}
+          />
         </View>
       ) : null}
 
@@ -907,14 +1071,6 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
               )}
             />
           </View>
-          <Pressable
-            onPress={closeSearch}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.buttonTextDark}>
-              {tr(messages, "common.back")}
-            </Text>
-          </Pressable>
         </Animated.View>
       ) : null}
 
@@ -1698,23 +1854,64 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     floatingLeft: { left: 16 },
     floatingRight: { right: 16 },
     floatingIcon: { color: palette.text, fontSize: 22, fontWeight: "800" },
+    // --- flaminGO gold pin -------------------------------------------------
     pinWrap: {
       position: "absolute",
-      top: "42%",
+      top: "50%",
       left: 0,
       right: 0,
       alignItems: "center",
       zIndex: 10,
+      transform: [{ translateY: -PIN_TOTAL_HEIGHT }],
     },
-    pinHead: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
-      borderWidth: 4,
-      borderColor: palette.primary,
-      backgroundColor: palette.surface,
+    pinRoot: { alignItems: "center" },
+    pinBubbleWrap: { alignItems: "center", marginBottom: 6 },
+    pinBubble: {
+      minHeight: 34,
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: RADIUS.pill,
+      backgroundColor: PIN.gold,
+      shadowColor: PIN.gold,
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
     },
-    pinStem: { width: 2, height: 18, backgroundColor: palette.primary },
+    pinBubbleText: {
+      fontSize: 14,
+      fontWeight: "900",
+      color: PIN.ink,
+      letterSpacing: 0.2,
+    },
+    pinBubbleTail: { marginTop: -1 },
+    pinHeadWrap: {
+      width: PIN.head,
+      height: PIN.head,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: PIN.gold,
+      shadowOpacity: 0.35,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 8,
+    },
+    pinStem: {
+      width: PIN.stemWidth,
+      height: PIN.stem,
+      marginTop: -2,
+      borderBottomLeftRadius: PIN.stemWidth / 2,
+      borderBottomRightRadius: PIN.stemWidth / 2,
+      backgroundColor: PIN.gold,
+    },
+    pinDot: {
+      width: PIN.dot,
+      height: PIN.dot,
+      borderRadius: PIN.dot / 2,
+      marginTop: PIN.dotGap,
+      backgroundColor: PIN.gold,
+    },
     locationRow: {
       minHeight: 58,
       flexDirection: "row",
@@ -1871,20 +2068,20 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       color: palette.textMuted,
     },
     stopMarker: {
-      width: 20,
-      height: 20,
-      borderRadius: 10,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: palette.onPrimary,
-      borderWidth: 2,
-      borderColor: palette.primary,
+      backgroundColor: PIN.ink,
+      borderWidth: 3,
+      borderColor: PIN.gold,
     },
     stopMarkerCore: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: palette.primary,
+      backgroundColor: PIN.gold,
     },
     bottomSheet: {
       position: "absolute",
@@ -2100,40 +2297,6 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       textAlignVertical: "top",
     },
     vehicleMarker: { width: 34, height: 68 },
-    pickupMarker: {
-      width: 30,
-      height: 30,
-      borderRadius: RADIUS.pill,
-      backgroundColor: palette.primary,
-      borderWidth: 3,
-      borderColor: palette.onPrimary,
-      alignItems: "center",
-      justifyContent: "center",
-      ...SHADOW.floating,
-    },
-    pickupMarkerCore: {
-      width: 10,
-      height: 10,
-      borderRadius: RADIUS.pill,
-      backgroundColor: palette.accent,
-    },
-    destinationMarker: {
-      width: 30,
-      height: 30,
-      borderRadius: RADIUS.pill,
-      backgroundColor: palette.accent,
-      borderWidth: 3,
-      borderColor: palette.onAccent,
-      alignItems: "center",
-      justifyContent: "center",
-      ...SHADOW.floating,
-    },
-    destinationFlag: {
-      color: palette.onAccent,
-      fontSize: 15,
-      lineHeight: 18,
-      fontWeight: "900",
-    },
     locationArt: { width: 220, height: 220, marginBottom: 8 },
     locationTitle: {
       color: palette.text,

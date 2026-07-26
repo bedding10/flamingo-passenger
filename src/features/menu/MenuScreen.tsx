@@ -1,79 +1,44 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Animated, { FadeInDown, SlideInLeft } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import {
-  Bell,
   ChevronRight,
-  CreditCard,
-  Gift,
-  Info,
   LifeBuoy,
   LogOut,
-  MapPin,
   Pencil,
   Route as RouteIcon,
-  Scale,
-  Settings as SettingsIcon,
-  Trash2,
   User,
-  UserPlus,
   Wallet as WalletIcon,
   Check,
 } from "lucide-react-native";
-import { Loading, Message, Screen, useUi } from "../../components/PassengerScreen";
+import { Loading, Message, Screen } from "../../components/PassengerScreen";
 import { PressScale } from "../../components/PressScale";
 import { tr } from "../../core/i18n";
-import type { Locale } from "../../core/contracts";
-import { SUPPORTED_LOCALES, useLocaleStore } from "../../core/locale-store";
 import { passengerServicesApi, type MenuRoute } from "../../core/passenger-api";
 import { useSession } from "../../core/session-store";
 import { useMessages } from "../../core/use-messages";
 import { useTheme } from "../../core/theme-store";
-import { withAlpha, type Palette, type ThemeMode } from "../../core/theme";
+import { withAlpha, type Palette } from "../../core/theme";
 import { RADIUS, SHADOW, SPACING, TYPE } from "../../core/design";
 import type { RootStackParamList } from "../../navigation/types";
 
-// Flag icons for the in-app language switcher (icons only, no labels), same as
-// the auth screen so the language stays switchable after login too.
-const FLAGS: Record<Locale, number> = {
-  ar: require("../../../assets/flag-ar.png") as number,
-  fr: require("../../../assets/flag-fr.png") as number,
-  en: require("../../../assets/flag-en.png") as number,
-};
-
 type IconComponent = typeof User;
 
-// One flat, deliberately ordered list. Server-driven items
-// (passenger.navigation) can hide or rename entries, but the order and the
-// icon of every known destination are decided here.
+// flaminGO drawer: exactly four destinations — account, wallet, trips, help.
+// Everything else (promotions, referrals, settings, appearance, legal, …) was
+// removed on purpose to keep the drawer premium and minimal.
 const ORDER: { route: MenuRoute; labelKey: string; icon: IconComponent }[] = [
   { route: "Profile", labelKey: "profile.title", icon: User },
-  { route: "Trips", labelKey: "trips.title", icon: RouteIcon },
-  { route: "Places", labelKey: "places.title", icon: MapPin },
   { route: "Wallet", labelKey: "wallet.title", icon: WalletIcon },
-  { route: "Subscriptions", labelKey: "subscriptions.title", icon: CreditCard },
-  { route: "Coupons", labelKey: "coupons.title", icon: Gift },
-  { route: "Referrals", labelKey: "referrals.title", icon: UserPlus },
-  { route: "Notifications", labelKey: "notifications.title", icon: Bell },
+  { route: "Trips", labelKey: "trips.title", icon: RouteIcon },
   { route: "Support", labelKey: "support.title", icon: LifeBuoy },
-  { route: "Settings", labelKey: "settings.title", icon: SettingsIcon },
-  { route: "About", labelKey: "about.title", icon: Info },
-  { route: "Legal", labelKey: "legal.title", icon: Scale },
-  { route: "DeleteAccount", labelKey: "accountDeletion.title", icon: Trash2 },
 ];
 
-// Wallet, coupons and help must always be reachable even if the dashboard
-// navigation payload has not been configured yet.
-const PILLARS: MenuRoute[] = ["Profile", "Trips", "Wallet", "Coupons", "Support", "Settings"];
-
-const THEME_MODE_KEYS: { mode: ThemeMode; labelKey: string }[] = [
-  { mode: "light", labelKey: "theme.light" },
-  { mode: "dark", labelKey: "theme.dark" },
-  { mode: "system", labelKey: "theme.system" },
-];
+// The four pillars are always reachable, even without a dashboard payload.
+const PILLARS: MenuRoute[] = ["Profile", "Wallet", "Trips", "Support"];
 
 // Loyalty tier derived from completed trips; purely presentational.
 function levelKey(trips: number): string {
@@ -86,8 +51,7 @@ function levelKey(trips: number): string {
 type Props = NativeStackScreenProps<RootStackParamList, "Menu">;
 
 export function MenuScreen({ navigation }: Props) {
-  const ui = useUi();
-  const { palette, name: themeName, mode, setMode } = useTheme();
+  const { palette, name: themeName } = useTheme();
   const styles = useMemo(() => makeStyles(palette), [palette]);
   const profile = useSession((state) => state.profile);
   const restore = useSession((state) => state.restore);
@@ -121,14 +85,12 @@ export function MenuScreen({ navigation }: Props) {
       serverItems.length === 0 ||
       PILLARS.includes(route) ||
       serverItems.some((item) => item.route === route);
-    const known = ORDER.filter((entry) => visible(entry.route)).map((entry) => ({
+    // Only the four flaminGO destinations are rendered; server extras are
+    // intentionally ignored so the drawer stays minimal.
+    return ORDER.filter((entry) => visible(entry.route)).map((entry) => ({
       ...entry,
       labelKey: labelFor(entry.route, entry.labelKey),
     }));
-    const extra = serverItems
-      .filter((item) => !ORDER.some((entry) => entry.route === item.route))
-      .map((item) => ({ route: item.route, labelKey: item.labelKey, icon: ChevronRight }));
-    return [...known, ...extra];
   }, [config.data]);
 
   const trips = profile?.tripCount ?? 0;
@@ -168,7 +130,7 @@ export function MenuScreen({ navigation }: Props) {
                 autoFocus
                 maxLength={60}
                 placeholderTextColor={palette.textMuted}
-                style={ui.field}
+                style={styles.nameInput}
               />
             ) : (
               <View style={styles.nameRow}>
@@ -240,47 +202,6 @@ export function MenuScreen({ navigation }: Props) {
           })}
         </View>
       )}
-
-      <View style={styles.divider} />
-
-      {/* Language (flags) and appearance (light / dark / system). */}
-      <Text style={ui.section}>{tr(messages, "menu.group.settings")}</Text>
-      <View style={styles.settings}>
-        <Text style={ui.fieldLabel}>{tr(messages, "settings.language")}</Text>
-        <View style={styles.flagRow}>
-          {SUPPORTED_LOCALES.map((value) => (
-            <PressScale
-              key={value}
-              accessibilityLabel={`language: ${value}`}
-              onPress={() => void setLocale(value)}
-              style={[styles.flag, value === locale && styles.flagActive]}
-            >
-              <Image source={FLAGS[value]} style={styles.flagImage} />
-            </PressScale>
-          ))}
-        </View>
-        <Text style={ui.fieldLabel}>{tr(messages, "theme.title")}</Text>
-        <View style={styles.segment}>
-          {THEME_MODE_KEYS.map((option) => (
-            <Pressable
-              key={option.mode}
-              accessibilityRole="button"
-              accessibilityState={{ selected: option.mode === mode }}
-              onPress={() => setMode(option.mode)}
-              style={[styles.segmentItem, option.mode === mode && styles.segmentItemActive]}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  option.mode === mode && styles.segmentTextActive,
-                ]}
-              >
-                {tr(messages, option.labelKey)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
 
       <PressScale
         accessibilityLabel={tr(messages, "menu.logout")}
@@ -364,38 +285,18 @@ function makeStyles(palette: Palette) {
       justifyContent: "center",
       backgroundColor: palette.surfaceAlt,
     },
-    itemLabel: { ...TYPE.bodyStrong, color: palette.text, flex: 1 },
-    settings: { gap: SPACING.sm },
-    flagRow: { flexDirection: "row", gap: SPACING.md },
-    flag: {
-      width: 52,
-      height: 52,
-      borderRadius: RADIUS.pill,
+    itemLabel: { ...TYPE.bodyStrong, color: palette.text, flex: 1, fontSize: 18 },
+    nameInput: {
+      minHeight: 52,
+      borderRadius: RADIUS.md,
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: palette.surfaceAlt,
-      alignItems: "center",
-      justifyContent: "center",
+      paddingHorizontal: SPACING.md,
+      color: palette.text,
+      fontSize: 16,
+      fontWeight: "700",
     },
-    flagActive: { borderWidth: 2, borderColor: palette.accent },
-    flagImage: { width: 34, height: 34, borderRadius: RADIUS.pill },
-    segment: {
-      flexDirection: "row",
-      padding: 4,
-      gap: 4,
-      borderRadius: RADIUS.pill,
-      backgroundColor: palette.surfaceAlt,
-    },
-    segmentItem: {
-      flex: 1,
-      minHeight: 42,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: RADIUS.pill,
-    },
-    segmentItemActive: { backgroundColor: palette.primary },
-    segmentText: { ...TYPE.caption, color: palette.textMuted, fontWeight: "800" },
-    segmentTextActive: { color: palette.onPrimary },
     logout: {
       minHeight: 56,
       flexDirection: "row",
