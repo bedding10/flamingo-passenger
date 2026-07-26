@@ -14,13 +14,43 @@ import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { HomeScreen } from "../features/home/HomeScreen";
 import { MenuScreen } from "../features/menu/MenuScreen";
-import { TripsScreen, TripDetailsScreen, PlacesScreen, PlaceEditorScreen } from "../features/services/TripsPlacesScreens";
-import { TripCompletionScreen } from "../features/services/TripCompletionScreen";
-import { TripPaymentScreen } from "../features/services/TripPaymentScreen";
-import { TripCommunicationScreen } from "../features/services/TripCommunicationScreen";
-import { WalletScreen, CouponsScreen, ReferralsScreen, SubscriptionsScreen } from "../features/services/FinanceScreens";
-import { NotificationsScreen } from "../features/services/NotificationsScreen";
-import { AccountProfileScreen, SupportScreen, SupportTicketScreen, LegalScreen, LegalDocumentScreen, AboutScreen, ContactScreen, SettingsScreen, DeleteAccountScreen } from "../features/services/AccountSupportScreens";
+import { lazyScreen } from "./lazy";
+
+// Secondary screens are code-split: the first bundle evaluation only pays for
+// auth, the map, the menu and the profile. Each module is required the first
+// time the user actually opens one of its screens.
+const trips = () => import("../features/services/TripsPlacesScreens");
+const finance = () => import("../features/services/FinanceScreens");
+const account = () => import("../features/services/AccountSupportScreens");
+const TripsScreen = lazyScreen(() => trips().then((m) => m.TripsScreen));
+const TripDetailsScreen = lazyScreen(() => trips().then((m) => m.TripDetailsScreen));
+const PlacesScreen = lazyScreen(() => trips().then((m) => m.PlacesScreen));
+const PlaceEditorScreen = lazyScreen(() => trips().then((m) => m.PlaceEditorScreen));
+const TripCompletionScreen = lazyScreen(() =>
+  import("../features/services/TripCompletionScreen").then((m) => m.TripCompletionScreen),
+);
+const TripPaymentScreen = lazyScreen(() =>
+  import("../features/services/TripPaymentScreen").then((m) => m.TripPaymentScreen),
+);
+const TripCommunicationScreen = lazyScreen(() =>
+  import("../features/services/TripCommunicationScreen").then((m) => m.TripCommunicationScreen),
+);
+const WalletScreen = lazyScreen(() => finance().then((m) => m.WalletScreen));
+const CouponsScreen = lazyScreen(() => finance().then((m) => m.CouponsScreen));
+const ReferralsScreen = lazyScreen(() => finance().then((m) => m.ReferralsScreen));
+const SubscriptionsScreen = lazyScreen(() => finance().then((m) => m.SubscriptionsScreen));
+const NotificationsScreen = lazyScreen(() =>
+  import("../features/services/NotificationsScreen").then((m) => m.NotificationsScreen),
+);
+import { AccountProfileScreen } from "../features/profile/AccountProfileScreen";
+const SupportScreen = lazyScreen(() => account().then((m) => m.SupportScreen));
+const SupportTicketScreen = lazyScreen(() => account().then((m) => m.SupportTicketScreen));
+const LegalScreen = lazyScreen(() => account().then((m) => m.LegalScreen));
+const LegalDocumentScreen = lazyScreen(() => account().then((m) => m.LegalDocumentScreen));
+const AboutScreen = lazyScreen(() => account().then((m) => m.AboutScreen));
+const ContactScreen = lazyScreen(() => account().then((m) => m.ContactScreen));
+const SettingsScreen = lazyScreen(() => account().then((m) => m.SettingsScreen));
+const DeleteAccountScreen = lazyScreen(() => account().then((m) => m.DeleteAccountScreen));
 import type { RootStackParamList } from "./types";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
@@ -57,7 +87,9 @@ export function RootNavigator() {
           <Stack.Navigator
             screenOptions={{
               headerShown: false,
-              animation: "fade",
+              animation: "slide_from_right",
+              animationDuration: 240,
+              freezeOnBlur: true,
               contentStyle: { backgroundColor: palette.bg },
             }}
           >
@@ -67,8 +99,8 @@ export function RootNavigator() {
               <Stack.Screen name="CompleteProfile" component={ProfileScreen} />
             ) : (
               <>
-                <Stack.Screen name="Home" component={HomeScreen} />
-                <Stack.Screen name="Menu" component={MenuScreen} />
+                <Stack.Screen name="Home" component={HomeScreen} options={{ animation: "fade" }} />
+                <Stack.Screen name="Menu" component={MenuScreen} options={{ animation: "slide_from_left" }} />
                 <Stack.Screen name="Profile" component={AccountProfileScreen} />
                 <Stack.Screen name="Trips" component={TripsScreen} />
                 <Stack.Screen name="TripDetails" component={TripDetailsScreen} />

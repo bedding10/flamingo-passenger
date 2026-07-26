@@ -38,11 +38,16 @@ import { loadTranslations, tr } from "../../core/i18n";
 import { reportError } from "../../core/observability";
 import { useSession } from "../../core/session-store";
 import {
-  NIGHT_MAP_JSON,
   overlayFor,
   withAlpha,
   type Palette,
+  mapStyleFor,
 } from "../../core/theme";
+import { RADIUS, SHADOW, SPACING, TYPE } from "../../core/design";
+import { PressScale } from "../../components/PressScale";
+import { GoldButton } from "../../components/GoldButton";
+import { PriceStepper } from "../../components/PriceStepper";
+import { a11yButton, a11yImage, a11yValue, announce } from "../../core/a11y";
 import { nextMode, useTheme } from "../../core/theme-store";
 import { connectTrip, type TripEvent } from "../trip/realtime";
 import { passengerApi } from "../trip/trip-api";
@@ -81,14 +86,39 @@ const CLASS_ART: Record<string, number> = {
   BIKE: require("../../../assets/class-bike.png"),
   MOTO: require("../../../assets/class-bike.png"),
 };
-const classArt = (rideClass?: string) =>
-  CLASS_ART[rideClass ?? ""] ?? CLASS_ART.ECONOMY;
+// Category artwork is matched on the category name first (dashboard names are
+// free text), then on the ride class, so two categories never share a picture
+// just because they were created with the same ride class.
+const ART_KEYWORDS: Array<[RegExp, number]> = [
+  [/(bike|moto|scooter|دراج)/i, CLASS_ART.BIKE],
+  [/(xl|van|family|minibus|عائل|كبير)/i, CLASS_ART.XL],
+  [/(comfort|premium|business|sedan|vip|lux|مريح|فاخر|أعمال)/i, CLASS_ART.COMFORT],
+  [/(eco|economy|standard|اقتصاد|عاد)/i, CLASS_ART.ECONOMY],
+];
+const artForVehicle = (vehicle: {
+  rideClass?: string;
+  name?: string;
+  nameI18n?: Record<string, string>;
+  imageAssetKey?: string;
+}) => {
+  const haystack = [
+    vehicle.name,
+    vehicle.imageAssetKey,
+    ...Object.values(vehicle.nameI18n ?? {}),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  for (const [pattern, art] of ART_KEYWORDS) if (pattern.test(haystack)) return art;
+  return CLASS_ART[(vehicle.rideClass ?? "").toUpperCase()] ?? CLASS_ART.ECONOMY;
+};
 // Illustration shown while the app is asking for (or missing) the location.
 const LOCATION_ART = require("../../../assets/illustration-location.png");
 // Algiers city centre: last-resort region so the map is never blank.
 const FALLBACK_POINT = { lat: 36.7538, lng: 3.0588 };
 // Matches the backend limit (ArrayMaxSize(3) on RequestRideDto.stops).
 const MAX_STOPS = 3;
+// Frames of the travelling light that runs along the gold route line.
+const ROUTE_STEPS = 60;
 const assetFallbackByClass: Record<string, string> = {
   ECONOMY: "vehicle.category.economy",
   COMFORT: "vehicle.category.comfort",
@@ -460,16 +490,32 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     setProposedFare("");
   };
 
-  // Twinkling route line: a slow opacity sweep on the glow layers, ticked
-  // only while a route is on screen (~11fps, no animation driver needed).
-  const [glowTick, setGlowTick] = useState(0);
+  // Map style is memoised so the map never re-renders because of a new array.
+  const mapStyle = useMemo(() => mapStyleFor(palette.mapStyle), [palette.mapStyle]);
+
+  // Travelling light: a short slice of the route advances from the pickup to
+  // the destination, redrawn only while a route is on screen. Cheap (one small
+  // slice of an already cached array) and it never touches the map itself.
+  const [routeTick, setRouteTick] = useState(0);
   const routeLength = route.data?.length ?? 0;
   useEffect(() => {
     if (!routeLength) return;
-    const timer = setInterval(() => setGlowTick((value) => (value + 1) % 24), 90);
+    setRouteTick(0);
+    const timer = setInterval(
+      () => setRouteTick((value) => (value + 1) % ROUTE_STEPS),
+      90,
+    );
     return () => clearInterval(timer);
   }, [routeLength]);
-  const glow = (1 + Math.sin((glowTick / 24) * Math.PI * 2)) / 2;
+  const comet = useMemo(() => {
+    const points = route.data ?? [];
+    if (points.length < 2) return [];
+    const span = Math.max(2, Math.round(points.length * 0.16));
+    const head = Math.round((routeTick / ROUTE_STEPS) * (points.length + span));
+    const start = Math.max(0, head - span);
+    const end = Math.min(points.length, head);
+    return end - start > 1 ? points.slice(start, end) : [];
+  }, [route.data, routeTick]);
 
   // Back button: leaving the app takes two consecutive presses.
   const [exitHint, setExitHint] = useState(false);
@@ -606,11 +652,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       <MapView
         ref={map}
         style={StyleSheet.absoluteFill}
-        customMapStyle={
-          palette.mapStyle === "night"
-            ? (NIGHT_MAP_JSON as unknown as Array<Record<string, unknown>>)
-            : []
-        }
+        customMapStyle={mapStyle}
         initialRegion={{
           latitude: pickup.lat,
           longitude: pickup.lng,
@@ -642,7 +684,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             tracksViewChanges={false}
           >
             <View style={styles.destinationMarker}>
-              <View style={styles.destinationMarkerCore} />
+              <Text style={styles.destinationFlag}>{"\u2691"}</Text>
             </View>
           </Marker>
         ) : null}
@@ -679,36 +721,47 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         ) : null}
         {route.data?.length ? (
           <>
-            {/* Four stacked strokes build the glow: wide halo, soft halo, solid
-                core and a travelling dashed highlight. */}
+            {/* Grey base stroke, gold top stroke, then a soft light that
+                slides from the pickup to the destination. */}
             <Polyline
               coordinates={route.data}
-              strokeColor={withAlpha(palette.primary, 0.1 + glow * 0.12)}
-              strokeWidth={18}
+              strokeColor={withAlpha(palette.routeBase, 0.45)}
+              strokeWidth={14}
               lineCap="round"
               lineJoin="round"
             />
             <Polyline
               coordinates={route.data}
-              strokeColor={withAlpha(palette.primary, 0.28 + glow * 0.22)}
-              strokeWidth={11}
+              strokeColor={palette.routeBase}
+              strokeWidth={9}
               lineCap="round"
               lineJoin="round"
             />
             <Polyline
               coordinates={route.data}
-              strokeColor={palette.primary}
+              strokeColor={palette.accent}
               strokeWidth={5}
               lineCap="round"
               lineJoin="round"
             />
-            <Polyline
-              coordinates={route.data}
-              strokeColor={withAlpha(palette.onPrimary, 0.25 + glow * 0.6)}
-              strokeWidth={2}
-              lineDashPattern={[5, 13]}
-              lineCap="round"
-            />
+            {comet.length > 1 ? (
+              <>
+                <Polyline
+                  coordinates={comet}
+                  strokeColor={withAlpha(palette.accent, 0.35)}
+                  strokeWidth={13}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                <Polyline
+                  coordinates={comet}
+                  strokeColor={withAlpha(palette.routeGlow, 0.9)}
+                  strokeWidth={4}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              </>
+            ) : null}
           </>
         ) : null}
       </MapView>
@@ -947,8 +1000,8 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             <>
               {!destination ? (
                 /* Collapsed Heetch box: one tap opens the full route editor. */
-                <Pressable
-                  accessibilityRole="button"
+                <PressScale
+                  accessibilityLabel={tr(messages, "home.enterDestination")}
                   onPress={() => {
                     setSearch("");
                     setSearchTarget("destination");
@@ -959,12 +1012,14 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
                     {tr(messages, "home.whereTo")}
                   </Text>
                   <View style={styles.collapsedField}>
-                    <View style={styles.routeSquare} />
+                    <View style={styles.searchIcon}>
+                      <Text style={styles.searchIconText}>{"\u25C9"}</Text>
+                    </View>
                     <Text style={styles.collapsedFieldText}>
                       {tr(messages, "home.enterDestination")}
                     </Text>
                   </View>
-                </Pressable>
+                </PressScale>
               ) : (
                 <>
                   {/* Full route: pickup, optional stops, destination. */}
@@ -1046,6 +1101,11 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
                         selected={selected?.id === vehicle.id}
                         revision={assetRevision}
                         messages={messages}
+                        badge={
+                          fastestVehicleId(vehicles) === vehicle.id
+                            ? tr(messages, "home.fastest")
+                            : undefined
+                        }
                         onPress={() => quoteMutation.mutate(vehicle)}
                       />
                     ))}
@@ -1109,19 +1169,14 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
                             </Pressable>
                           ))}
                       </View>
-                      <Pressable
-                        disabled={requestMutation.isPending || !payment}
-                        onPress={() => requestMutation.mutate()}
-                        style={styles.primaryButton}
-                      >
-                        {requestMutation.isPending ? (
-                          <ActivityIndicator color={palette.onPrimary} />
-                        ) : (
-                          <Text style={styles.buttonTextLight}>
-                            {tr(messages, "home.requestRide")}
-                          </Text>
-                        )}
-                      </Pressable>
+                      <View style={styles.ctaWrap}>
+                        <GoldButton
+                          label={tr(messages, "home.requestRide")}
+                          loading={requestMutation.isPending}
+                          disabled={!payment}
+                          onPress={() => requestMutation.mutate()}
+                        />
+                      </View>
                       {selected.allowsNegotiation ? (
                         <Pressable
                           onPress={() => void startNegotiation()}
@@ -1160,6 +1215,17 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
 type Styles = ReturnType<typeof makeStyles>;
 
+// The class that can pick the passenger up first earns the gold badge. Pure
+// and cheap, so it can run inline while rendering the horizontal list.
+function fastestVehicleId(vehicles: VehicleType[]): string | null {
+  let best: VehicleType | null = null;
+  for (const vehicle of vehicles) {
+    if (vehicle.etaMinutes == null) continue;
+    if (!best || vehicle.etaMinutes < (best.etaMinutes ?? Infinity)) best = vehicle;
+  }
+  return best?.id ?? null;
+}
+
 function VehicleCard({
   styles,
   vehicle,
@@ -1167,6 +1233,7 @@ function VehicleCard({
   selected,
   revision,
   messages,
+  badge,
   onPress,
 }: {
   styles: Styles;
@@ -1175,12 +1242,25 @@ function VehicleCard({
   selected: boolean;
   revision: number;
   messages: Record<string, string>;
+  badge?: string;
   onPress: () => void;
 }) {
   const key = vehicle.imageAssetKey;
   const asset = key ? managedAsset(key) : null;
   return (
     <Pressable
+      {...a11yButton(
+        [
+          vehicle.nameI18n?.[locale] ?? vehicle.name,
+          vehicle.capacity ? `${vehicle.capacity} ${tr(messages, "home.capacity")}` : "",
+          vehicle.etaMinutes != null
+            ? `${vehicle.etaMinutes} ${tr(messages, "home.eta")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(", "),
+        { selected },
+      )}
       onPress={onPress}
       style={[styles.vehicleCard, selected && styles.vehicleSelected]}
     >
@@ -1193,11 +1273,10 @@ function VehicleCard({
         />
       ) : (
         <Image
-          source={classArt(vehicle.rideClass)}
+          source={artForVehicle(vehicle)}
           resizeMode="contain"
-          accessibilityLabel={tr(
-            messages,
-            assetFallbackByClass[vehicle.rideClass] ?? "",
+          {...a11yImage(
+            tr(messages, assetFallbackByClass[vehicle.rideClass] ?? ""),
           )}
           style={styles.vehicleImage}
         />
@@ -1205,8 +1284,22 @@ function VehicleCard({
       <Text numberOfLines={1} style={styles.vehicleName}>
         {vehicle.nameI18n?.[locale] ?? vehicle.name}
       </Text>
-      {vehicle.etaMinutes != null ? (
-        <Text style={styles.vehicleEta}>{vehicle.etaMinutes}</Text>
+      <View style={styles.vehicleMetaRow}>
+        {vehicle.capacity ? (
+          <Text style={styles.vehicleEta}>
+            {`${vehicle.capacity} ${tr(messages, "home.capacity")}`}
+          </Text>
+        ) : null}
+        {vehicle.etaMinutes != null ? (
+          <Text style={styles.vehicleEta}>
+            {`${vehicle.etaMinutes} ${tr(messages, "home.eta")}`}
+          </Text>
+        ) : null}
+      </View>
+      {badge ? (
+        <View style={styles.vehicleBadge}>
+          <Text style={styles.vehicleBadgeText}>{badge}</Text>
+        </View>
       ) : null}
     </Pressable>
   );
@@ -1307,6 +1400,12 @@ function NegotiationPanel({
 }) {
   const value = Number(proposed);
   const canSend = Number.isFinite(value) && value > 0;
+  const offerCount = offers.length;
+  useEffect(() => {
+    if (offerCount > 0) {
+      announce(`${tr(messages, "home.driverOffers")}: ${offerCount}`);
+    }
+  }, [messages, offerCount]);
   // Cheapest first, exactly like inDrive's offer list.
   const sorted = [...offers].sort((a, b) => a.fare - b.fare);
   return (
@@ -1316,14 +1415,13 @@ function NegotiationPanel({
       </Text>
       <Text style={styles.muted}>{tr(messages, "home.negotiationHint")}</Text>
 
-      {/* price, typed directly */}
-      <TextInput
+      {/* price: drag the gold track, tap - / +, or type it directly */}
+      <PriceStepper
         value={proposed}
-        onChangeText={setProposed}
-        keyboardType="decimal-pad"
-        placeholder={suggested != null ? String(suggested) : undefined}
-        placeholderTextColor={placeholderColor}
-        style={styles.fareInput}
+        onChange={setProposed}
+        suggested={suggested}
+        decreaseLabel={tr(messages, "home.priceDown")}
+        increaseLabel={tr(messages, "home.priceUp")}
       />
       {suggested != null ? (
         <Text style={styles.muted}>
@@ -1342,15 +1440,13 @@ function NegotiationPanel({
         style={styles.noteInput}
       />
 
-      <Pressable
-        onPress={onSend}
-        disabled={!canSend}
-        style={[styles.primaryButton, !canSend && styles.disabled]}
-      >
-        <Text style={styles.buttonTextLight}>
-          {tr(messages, "home.sendOffer")}
-        </Text>
-      </Pressable>
+      <View style={styles.ctaWrap}>
+        <GoldButton
+          label={tr(messages, "home.sendOffer")}
+          disabled={!canSend}
+          onPress={onSend}
+        />
+      </View>
 
       <Text style={[styles.label, { marginTop: 16 }]}>
         {`${tr(messages, "home.driverOffers")}${sorted.length ? ` (${sorted.length})` : ""}`}
@@ -1367,7 +1463,10 @@ function NegotiationPanel({
                   <Text style={styles.muted}>{`★ ${offer.driver.rating}`}</Text>
                 ) : null}
               </View>
-              <View style={styles.offerPriceBox}>
+              <View
+                style={styles.offerPriceBox}
+                {...a11yValue(tr(messages, "home.price"), offer.fare)}
+              >
                 <Text style={styles.price}>{offer.fare}</Text>
                 {index === 0 && sorted.length > 1 ? (
                   <Text style={styles.bestBadge}>
@@ -1392,6 +1491,9 @@ function NegotiationPanel({
                 onPress={() => onAccept(offer.id)}
               />
               <Pressable
+                {...a11yButton(tr(messages, "home.dismissOffer"), {
+                  hint: String(offer.fare),
+                })}
                 onPress={() => onDismiss(offer.id)}
                 style={styles.dismissButton}
               >
@@ -1638,11 +1740,12 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       right: 0,
       bottom: 0,
       backgroundColor: palette.bg,
-      padding: 20,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      borderWidth: 1,
-      borderColor: palette.border,
+      padding: SPACING.xl,
+      borderTopLeftRadius: RADIUS.sheet,
+      borderTopRightRadius: RADIUS.sheet,
+      borderTopWidth: 1,
+      borderColor: withAlpha(palette.border, 0.7),
+      ...SHADOW.sheet,
     },
     quickRow: {
       minHeight: 56,
@@ -1732,22 +1835,35 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     addStopText: { fontSize: 15, fontWeight: "700", color: palette.text },
     collapsedSearch: { paddingTop: 2 },
     collapsedTitle: {
-      fontSize: 22,
-      fontWeight: "900",
+      ...TYPE.title,
       color: palette.text,
-      letterSpacing: -0.4,
-      marginBottom: 14,
+      marginBottom: SPACING.md,
     },
     collapsedField: {
-      minHeight: 58,
+      minHeight: 64,
       flexDirection: "row",
       alignItems: "center",
-      gap: 12,
-      paddingHorizontal: 16,
-      borderRadius: 16,
+      gap: SPACING.md,
+      paddingHorizontal: SPACING.md,
+      borderRadius: RADIUS.pill,
       borderWidth: 1,
-      borderColor: palette.border,
+      borderColor: withAlpha(palette.border, 0.9),
       backgroundColor: palette.surfaceAlt,
+      ...SHADOW.card,
+    },
+    searchIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: RADIUS.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: withAlpha(palette.accent, 0.16),
+    },
+    searchIconText: {
+      fontSize: 17,
+      lineHeight: 20,
+      fontWeight: "900",
+      color: palette.accent,
     },
     collapsedFieldText: {
       fontSize: 17,
@@ -1775,38 +1891,40 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       left: 0,
       right: 0,
       bottom: 0,
-      maxHeight: "70%",
+      maxHeight: "74%",
       backgroundColor: palette.surface,
-      padding: 20,
-      paddingBottom: 28,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      borderWidth: 1,
-      borderColor: palette.border,
+      paddingHorizontal: SPACING.xl,
+      paddingTop: SPACING.md,
+      paddingBottom: SPACING.xxl,
+      borderTopLeftRadius: RADIUS.sheet,
+      borderTopRightRadius: RADIUS.sheet,
+      borderTopWidth: 1,
+      borderColor: withAlpha(palette.border, 0.7),
+      ...SHADOW.sheet,
     },
     handle: {
       alignSelf: "center",
-      width: 42,
+      width: 48,
       height: 5,
-      borderRadius: 3,
-      backgroundColor: palette.border,
-      marginBottom: 16,
+      borderRadius: RADIUS.pill,
+      backgroundColor: withAlpha(palette.textMuted, 0.35),
+      marginBottom: SPACING.lg,
     },
     sheetTitle: {
-      fontSize: 22,
-      fontWeight: "900",
+      ...TYPE.title,
       color: palette.text,
-      letterSpacing: -0.4,
-      marginBottom: 6,
+      marginBottom: SPACING.xs,
     },
     searchInput: {
-      height: 56,
-      borderRadius: 16,
+      height: 60,
+      borderRadius: RADIUS.pill,
       backgroundColor: palette.surfaceAlt,
-      paddingHorizontal: 16,
+      borderWidth: 1,
+      borderColor: withAlpha(palette.border, 0.9),
+      paddingHorizontal: SPACING.xl,
       fontSize: 17,
       color: palette.text,
-      marginVertical: 16,
+      marginVertical: SPACING.lg,
     },
     suggestion: {
       minHeight: 64,
@@ -1816,9 +1934,10 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     },
     vehicleList: { gap: 10, paddingVertical: 14 },
     vehicleCard: {
-      width: 148,
-      minHeight: 128,
-      borderRadius: 18,
+      width: 156,
+      minHeight: 148,
+      overflow: "hidden",
+      borderRadius: RADIUS.lg,
       borderWidth: 1,
       borderColor: palette.border,
       padding: 10,
@@ -1843,6 +1962,18 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     },
     vehicleName: { fontSize: 16, fontWeight: "800", color: palette.text },
     vehicleEta: { fontSize: 12, color: palette.textMuted, marginTop: 3 },
+    vehicleMetaRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+    vehicleBadge: {
+      position: "absolute",
+      top: 8,
+      left: 8,
+      paddingHorizontal: SPACING.sm,
+      paddingVertical: 3,
+      borderRadius: RADIUS.pill,
+      backgroundColor: withAlpha(palette.accent, 0.18),
+    },
+    vehicleBadgeText: { ...TYPE.overline, color: palette.accent },
+    ctaWrap: { marginTop: SPACING.md },
     summaryRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -1970,36 +2101,38 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     },
     vehicleMarker: { width: 34, height: 68 },
     pickupMarker: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
-      backgroundColor: palette.onPrimary,
+      width: 30,
+      height: 30,
+      borderRadius: RADIUS.pill,
+      backgroundColor: palette.primary,
       borderWidth: 3,
-      borderColor: palette.primary,
+      borderColor: palette.onPrimary,
       alignItems: "center",
       justifyContent: "center",
+      ...SHADOW.floating,
     },
     pickupMarkerCore: {
       width: 10,
       height: 10,
-      borderRadius: 5,
-      backgroundColor: palette.primary,
+      borderRadius: RADIUS.pill,
+      backgroundColor: palette.accent,
     },
     destinationMarker: {
-      width: 26,
-      height: 26,
-      borderRadius: 7,
-      backgroundColor: palette.onPrimary,
+      width: 30,
+      height: 30,
+      borderRadius: RADIUS.pill,
+      backgroundColor: palette.accent,
       borderWidth: 3,
-      borderColor: palette.primary,
+      borderColor: palette.onAccent,
       alignItems: "center",
       justifyContent: "center",
+      ...SHADOW.floating,
     },
-    destinationMarkerCore: {
-      width: 10,
-      height: 10,
-      borderRadius: 2,
-      backgroundColor: palette.primary,
+    destinationFlag: {
+      color: palette.onAccent,
+      fontSize: 15,
+      lineHeight: 18,
+      fontWeight: "900",
     },
     locationArt: { width: 220, height: 220, marginBottom: 8 },
     locationTitle: {

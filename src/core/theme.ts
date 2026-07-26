@@ -16,7 +16,10 @@ export type Palette = {
   border: string; // borders / dividers
   primary: string; // primary button (black in light, white in dark)
   onPrimary: string; // text on top of the primary button
-  accent: string; // gold — rare accent only
+  accent: string; // gold — flaminGO signature accent
+  onAccent: string; // text / icons drawn on top of the gold accent
+  routeBase: string; // calm grey base stroke of the route line
+  routeGlow: string; // travelling light that runs along the gold route
   danger: string;
   mapStyle: "standard" | "night";
 };
@@ -31,6 +34,9 @@ export const LIGHT: Palette = {
   primary: "#0E0E10",
   onPrimary: "#FFFFFF",
   accent: "#D9A520",
+  onAccent: "#FFFFFF",
+  routeBase: "#B9BEC6",
+  routeGlow: "#FFF3D2",
   danger: "#B42318",
   mapStyle: "standard",
 };
@@ -45,6 +51,9 @@ export const DARK: Palette = {
   primary: "#FFFFFF",
   onPrimary: "#0B0B0C",
   accent: "#D9A520",
+  onAccent: "#FFFFFF",
+  routeBase: "#454A54",
+  routeGlow: "#FFF3D2",
   danger: "#F97066",
   mapStyle: "night",
 };
@@ -86,14 +95,14 @@ export function withAlpha(color: string, alpha: number): string {
 }
 
 export const NIGHT_MAP_JSON = [
-  { elementType: "geometry", stylers: [{ color: "#0B0B0C" }] },
+  { elementType: "geometry", stylers: [{ color: "#0A0D12" }] },
   { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#9AA0A9" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#0B0B0C" }] },
   {
     featureType: "administrative",
     elementType: "geometry",
-    stylers: [{ color: "#26262B" }],
+    stylers: [{ color: "#232830" }],
   },
   {
     featureType: "administrative.locality",
@@ -108,9 +117,9 @@ export const NIGHT_MAP_JSON = [
   {
     featureType: "poi.park",
     elementType: "geometry",
-    stylers: [{ color: "#151517" }],
+    stylers: [{ color: "#12181B" }],
   },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1E1E22" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2A2F38" }] },
   {
     featureType: "road",
     elementType: "geometry.stroke",
@@ -124,17 +133,46 @@ export const NIGHT_MAP_JSON = [
   {
     featureType: "road.highway",
     elementType: "geometry",
-    stylers: [{ color: "#2C2C31" }],
+    stylers: [{ color: "#39404B" }],
   },
   {
     featureType: "transit",
     elementType: "geometry",
     stylers: [{ color: "#1E1E22" }],
   },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#08080A" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#070C14" }] },
   {
     featureType: "water",
     elementType: "labels.text.fill",
     stylers: [{ color: "#4B5058" }],
   },
 ] as const;
+
+
+// Very light day map: near-white land, grey roads, muted labels — the bottom
+// card stays the loudest element on screen.
+export const DAY_MAP_JSON = [
+  { elementType: "geometry", stylers: [{ color: "#F6F6F7" }] },
+  { elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#7B818B" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#E4E5E8" }] },
+  { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#EAEEE9" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#E6E7EA" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9AA0A9" }] },
+  { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#FDFDFD" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#EFEFF1" }] },
+  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#DFE0E4" }] },
+  { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#DDE3EA" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#A7AEB8" }] },
+] as const;
+
+// Returns the Google Maps style array for the active palette. Kept here so the
+// map never carries literal colours inside feature code.
+export const mapStyleFor = (style: Palette["mapStyle"]) =>
+  (style === "night" ? NIGHT_MAP_JSON : DAY_MAP_JSON) as unknown as Array<
+    Record<string, unknown>
+  >;

@@ -16,6 +16,12 @@ import {
 } from "./core/observability";
 import { registerNotifications } from "./core/notifications";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
+import { useBrandFonts } from "./core/fonts";
+import { enableDynamicType } from "./core/text-scale";
+
+// The OS font-size setting must work everywhere, capped so pills and map cards
+// never clip. Applied at module scope: before any screen renders.
+enableDynamicType();
 
 const client = new QueryClient({
   queryCache: new QueryCache({
@@ -31,6 +37,8 @@ const client = new QueryClient({
   },
 });
 export default function App() {
+  // Brand typeface: the UI renders immediately and swaps to it when ready.
+  useBrandFonts();
   const restore = useSession((state) => state.restore);
   const userId = useSession((state) => state.session?.userId ?? null);
   useEffect(() => {

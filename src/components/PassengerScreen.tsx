@@ -4,6 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Animated, { FadeIn, SlideInRight } from "react-native-reanimated";
 import { useTheme } from "../core/theme-store";
 import type { Palette } from "../core/theme";
+import { RADIUS, SHADOW, TYPE } from "../core/design";
+import { PressScale } from "./PressScale";
 
 // Shared UI styles, built from the ACTIVE palette (light / dark). Screens call
 // `useUi()` instead of importing a static stylesheet so every colour follows
@@ -17,8 +19,8 @@ export function makeUi(palette: Palette) {
     title: { flex: 1, textAlign: "center", color: palette.text, fontSize: 18, fontWeight: "800" },
     scroll: { padding: 16, paddingBottom: 44 },
     body: { gap: 12 },
-    card: { backgroundColor: palette.surface, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: palette.border, gap: 6 },
-    primary: { minHeight: 54, borderRadius: 16, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },
+    card: { backgroundColor: palette.surface, borderRadius: RADIUS.lg, padding: 16, borderWidth: 1, borderColor: palette.border, gap: 6, ...SHADOW.card },
+    primary: { minHeight: 58, borderRadius: RADIUS.md, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 18, ...SHADOW.card },
     destructive: { backgroundColor: palette.danger },
     disabled: { opacity: 0.35 },
     primaryText: { color: palette.onPrimary, fontSize: 16, fontWeight: "800" },
@@ -52,7 +54,7 @@ export function makeUi(palette: Palette) {
     success: { color: palette.accent, fontSize: 14, fontWeight: "700" },
     dangerText: { color: palette.danger, fontSize: 14, fontWeight: "700" },
     caption: { color: palette.textMuted, fontSize: 13, lineHeight: 19 },
-    h2: { color: palette.text, fontSize: 19, fontWeight: "800" },
+    h2: { ...TYPE.heading, color: palette.text },
     paragraph: { color: palette.text, fontSize: 15, lineHeight: 24 },
   });
 }
@@ -77,7 +79,7 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
 }
 export function PrimaryButton({ label, onPress, disabled, destructive = false }: { label: string; onPress: () => void; disabled?: boolean; destructive?: boolean }) {
   const ui = useUi();
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[ui.primary, destructive && ui.destructive, disabled && ui.disabled]}><Text style={ui.primaryText}>{label}</Text></Pressable>;
+  return <PressScale accessibilityLabel={label} disabled={disabled} onPress={onPress} style={[ui.primary, destructive && ui.destructive, disabled && ui.disabled]}><Text style={ui.primaryText}>{label}</Text></PressScale>;
 }
 export function SecondaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
   const ui = useUi();

@@ -28,6 +28,8 @@ export interface Profile {
   rating?: number | null;
   /** Completed trips, shown in parentheses next to the rating. */
   tripCount?: number | null;
+  /** How many ratings the average is based on. */
+  ratingCount?: number | null;
 }
 export interface TranslationBundle {
   locale: Locale;
