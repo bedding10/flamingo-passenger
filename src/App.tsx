@@ -30,7 +30,10 @@ const client = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60_000,
-      gcTime: 86_400_000,
+      // 24h of cached query payloads was held in JS heap for the whole
+      // session. 15 minutes keeps back-navigation instant while letting
+      // entry-level devices reclaim memory.
+      gcTime: 900_000,
       retry: 2,
       refetchOnWindowFocus: false,
     },

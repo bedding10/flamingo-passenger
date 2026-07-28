@@ -2,39 +2,23 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const config = getDefaultConfig(__dirname);
 
-// Enable package.json "exports" map resolution. Needed so
-//   import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-// resolves via three's exports map ("./examples/jsm/*": "./examples/jsm/*").
+// Enable package.json "exports" map resolution (modern dependency layout).
 config.resolver.unstable_enablePackageExports = true;
 
-// Treat 3D model formats as bundled assets so that
-//   require("../../assets/brand-logo.glb")
-// resolves and the .glb is packaged into the app bundle.
-config.resolver.assetExts = Array.from(
-  new Set([...(config.resolver.assetExts ?? []), "glb", "gltf", "bin"]),
-);
-
 // ---------------------------------------------------------------------------
-// CRITICAL FIX (was the primary cause of the "unusable UI").
+// CRITICAL: do NOT add "browser" to the GLOBAL condition set.
 //
-// The previous config added "browser" to the GLOBAL condition set:
-//   config.resolver.unstable_conditionNames = [...(...), "browser"];
-//
-// With package exports enabled, that forces EVERY dependency whose exports map
-// exposes a "browser" build to resolve to its WEB bundle on the device, e.g.
+// With package exports enabled, a global "browser" condition forces EVERY
+// dependency that ships a web build to resolve to it on the device (e.g.
 // react-native-reanimated, react-native-safe-area-context, react-native-maps,
-// @shopify/flash-list, and more. Those web builds run without crashing but do
-// nothing native: reanimated layout animations (FadeIn/SlideIn...) never run,
-// so "entering" views stay at opacity 0 -> content and bottom sheets look
-// invisible/blank; maps, lists, images and the GL surface silently fail to
-// draw. That is exactly the reported symptom set (invisible UI, blank screens,
-// dead 3D/images, "frozen" feel) WITH NO red screen, because nothing throws.
+// @shopify/flash-list). Those web builds do not crash, they simply do nothing
+// native: layout animations never run, so "entering" views stay at opacity 0
+// and maps/lists silently fail to draw - an invisible, frozen-looking UI with
+// no red screen.
 //
-// The ONLY dependency here that genuinely needs its "browser" build in React
-// Native is axios (its "default"/Node build imports Node core modules like
-// "url"/"http" that don't exist in RN). So we scope the "browser" condition to
-// axios ONLY, via resolveRequest, and leave every other package on its correct
-// native / react-native build.
+// axios is the ONLY dependency here that genuinely needs its "browser" build in
+// React Native (its default build imports Node core modules like "url"/"http").
+// So the condition is scoped to axios alone via resolveRequest.
 // ---------------------------------------------------------------------------
 const browserConditions = Array.from(
   new Set([...(config.resolver.unstable_conditionNames ?? []), "browser"]),

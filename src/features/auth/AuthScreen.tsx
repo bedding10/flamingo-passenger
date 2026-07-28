@@ -33,13 +33,13 @@ import {
 import { useSession } from "../../core/session-store";
 
 // App logo (replaces the removed 3D model). Shown centered on the launch screen.
-const APP_LOGO = require("../../../assets/app-logo.png") as number;
+const APP_LOGO = require("../../../assets/app-logo.webp") as number;
 
 // Flag icons for the language switcher (icons only, no labels).
 const FLAGS: Record<Locale, number> = {
-  ar: require("../../../assets/flag-ar.png") as number,
-  fr: require("../../../assets/flag-fr.png") as number,
-  en: require("../../../assets/flag-en.png") as number,
+  ar: require("../../../assets/flag-ar.webp") as number,
+  fr: require("../../../assets/flag-fr.webp") as number,
+  en: require("../../../assets/flag-en.webp") as number,
 };
 
 type Mode = "entry" | "phone" | "otp";

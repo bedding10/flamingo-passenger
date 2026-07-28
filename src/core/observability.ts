@@ -6,20 +6,18 @@ import {
   recordError,
   setUserId,
 } from "@react-native-firebase/crashlytics";
-import {
-  getPerformance,
-  setPerformanceCollectionEnabled,
-} from "@react-native-firebase/perf";
 import * as Application from "expo-application";
 import * as Device from "expo-device";
+
+// Firebase Performance Monitoring was removed: it shipped a full extra native
+// SDK (~1-2 MB) and installed method-trace instrumentation on every startup,
+// while Crashlytics already covers the signal we act on. Startup and screen
+// timings are tracked from the backend metrics pipeline instead.
 
 export async function initializeObservability() {
   const enabled = !__DEV__;
   const crashlytics = getCrashlytics();
-  await Promise.all([
-    setCrashlyticsCollectionEnabled(crashlytics, enabled),
-    setPerformanceCollectionEnabled(getPerformance(), enabled),
-  ]);
+  await setCrashlyticsCollectionEnabled(crashlytics, enabled);
   if (enabled) {
     await setAttributes(crashlytics, {
       appVersion: Application.nativeApplicationVersion ?? "unknown",

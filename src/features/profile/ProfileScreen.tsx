@@ -17,8 +17,8 @@ import { useTheme } from "../../core/theme-store";
 import type { Palette } from "../../core/theme";
 
 // صورتا اختيار الجنس (ذكر/أنثى) المرفقتان — مجمّعتان داخل التطبيق.
-const MALE_ICON = require("../../../assets/gender-male.png") as number;
-const FEMALE_ICON = require("../../../assets/gender-female.png") as number;
+const MALE_ICON = require("../../../assets/gender-male.webp") as number;
+const FEMALE_ICON = require("../../../assets/gender-female.webp") as number;
 
 // في صفحة إكمال الملف الشخصي نكتفي بـ ذكر/أنثى عبر الصورتين.
 const GENDER_OPTIONS: { value: Gender; icon: number }[] = [

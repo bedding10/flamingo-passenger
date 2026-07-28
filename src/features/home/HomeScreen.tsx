@@ -81,21 +81,21 @@ const ACTIVE = new Set([
 ]);
 // Top-down vehicle artwork used for the live driver marker. Bundled in the
 // app (3KB each) so the marker draws instantly, offline, with no network hop.
-const CAR_MARKER = require("../../../assets/vehicle-car.png");
-const MOTO_MARKER = require("../../../assets/vehicle-moto.png");
+const CAR_MARKER = require("../../../assets/vehicle-car.webp");
+const MOTO_MARKER = require("../../../assets/vehicle-moto.webp");
 const markerForClass = (rideClass?: string) =>
   rideClass === "BIKE" || rideClass === "MOTO" ? MOTO_MARKER : CAR_MARKER;
 // Bundled 3D class artwork (used until the dashboard ships its own image for
 // a class). Local files draw instantly, with no network round trip.
 const CLASS_ART: Record<string, number> = {
-  ECONOMY: require("../../../assets/class-economy.png"),
-  COMFORT: require("../../../assets/class-comfort.png"),
-  SEDAN: require("../../../assets/class-comfort.png"),
-  PREMIUM: require("../../../assets/class-comfort.png"),
-  VAN: require("../../../assets/class-xl.png"),
-  XL: require("../../../assets/class-xl.png"),
-  BIKE: require("../../../assets/class-bike.png"),
-  MOTO: require("../../../assets/class-bike.png"),
+  ECONOMY: require("../../../assets/class-economy.webp"),
+  COMFORT: require("../../../assets/class-comfort.webp"),
+  SEDAN: require("../../../assets/class-comfort.webp"),
+  PREMIUM: require("../../../assets/class-comfort.webp"),
+  VAN: require("../../../assets/class-xl.webp"),
+  XL: require("../../../assets/class-xl.webp"),
+  BIKE: require("../../../assets/class-bike.webp"),
+  MOTO: require("../../../assets/class-bike.webp"),
 };
 // Category artwork is matched on the category name first (dashboard names are
 // free text), then on the ride class, so two categories never share a picture
@@ -123,7 +123,7 @@ const artForVehicle = (vehicle: {
   return CLASS_ART[(vehicle.rideClass ?? "").toUpperCase()] ?? CLASS_ART.ECONOMY;
 };
 // Illustration shown while the app is asking for (or missing) the location.
-const LOCATION_ART = require("../../../assets/illustration-location.png");
+const LOCATION_ART = require("../../../assets/illustration-location.webp");
 // Algiers city centre: last-resort region so the map is never blank.
 const FALLBACK_POINT = { lat: 36.7538, lng: 3.0588 };
 // Matches the backend limit (ArrayMaxSize(3) on RequestRideDto.stops).
@@ -519,6 +519,14 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   };
 
   // Map style is memoised so the map never re-renders because of a new array.
+  // onRegionChange fires on EVERY frame of a pan/zoom (~60x per second). An
+  // inline arrow here allocated a new prop on each render and re-entered React
+  // state on every frame; a stable callback that early-returns once dragging is
+  // latched keeps the gesture on the native thread.
+  const onRegionChange = useCallback(() => {
+    if (pinMode && !pinDragging) setPinDragging(true);
+  }, [pinMode, pinDragging]);
+
   const mapStyle = useMemo(() => mapStyleFor(palette.mapStyle), [palette.mapStyle]);
 
   // Travelling light: a short slice of the route advances from the pickup to
@@ -647,9 +655,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           latitudeDelta: 0.035,
           longitudeDelta: 0.035,
         }}
-        onRegionChange={() => {
-          if (pinMode && !pinDragging) setPinDragging(true);
-        }}
+        onRegionChange={onRegionChange}
         onRegionChangeComplete={onRegionChangeComplete}
         showsUserLocation
         showsMyLocationButton={false}

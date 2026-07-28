@@ -7,7 +7,8 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "assetBundlePatterns": [
-      "assets/*.png"
+      "assets/*.png",
+      "assets/*.webp"
     ],
     "newArchEnabled": false,
     "platforms": [
