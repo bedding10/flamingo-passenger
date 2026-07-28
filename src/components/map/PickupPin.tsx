@@ -1,18 +1,20 @@
 /**
  * PickupPin — flaminGO pickup marker.
- * Circular head, black center, thin gold border, gold person glyph, long stem.
- * Dragging: detached gold dot, no glow, no bubble.
- * Snapped: gold glow + "Pickup here" bubble.
+ *
+ * Small SVG pin, solid GOLD head with a black person glyph, black ring, short
+ * gold stem, and the blue origin dot that stays welded to the map point while
+ * the pin lifts off / lands.
  *
  * Pure presentational component — no map / snapping logic inside.
  */
 import React from "react"
 import { PersonIcon } from "../icons/Icons"
 import MapPinBase, { PIN_GEOMETRY, type MapPinState } from "./MapPinBase"
+import { colors } from "../../design/theme"
 
 export type PickupPinProps = {
 	state: MapPinState
-	/** Override the bubble copy (localized). Defaults to "Pickup here". */
+	/** Bubble copy (localized). */
 	label?: string
 	hideBubble?: boolean
 	testID?: string
@@ -20,16 +22,17 @@ export type PickupPinProps = {
 
 const PickupPin: React.FC<PickupPinProps> = ({
 	state,
-	label = "Pickup here",
+	label = "نقطة الانطلاق",
 	hideBubble,
 	testID = "pickup-pin",
 }) => (
 	<MapPinBase
 		state={state}
 		label={label}
+		solid
 		hideBubble={hideBubble}
 		testID={testID}
-		glyph={<PersonIcon size={PIN_GEOMETRY.glyphSize} />}
+		glyph={<PersonIcon size={PIN_GEOMETRY.glyphSize} color={colors.black} />}
 	/>
 )
 

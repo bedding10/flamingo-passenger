@@ -1,7 +1,10 @@
 /**
  * PlaceRow — one tappable row inside the destination sheet
- * (current location, set on map, recent, saved, favorite, search suggestion).
- * Large touch target, gold press feedback, RTL-safe, never clips text.
+ * (current location, set on map, favorites, recent, search suggestion).
+ *
+ * Dense Heetch-like row: 20pt gold glyph, title + optional subtitle, hairline
+ * separator handled by the list. Colours come from the inverted surfaces so it
+ * reads correctly on both the charcoal and the white sheet.
  */
 import React from "react"
 import { I18nManager, Pressable, StyleSheet, Text, View } from "react-native"
@@ -12,9 +15,11 @@ import {
 	spacing,
 	touchTarget,
 	typography,
+	type Surfaces,
 } from "../../design/theme"
 
 export type PlaceRowProps = {
+	surfaces: Surfaces
 	title: string
 	subtitle?: string
 	/** Gold leading glyph (from ../icons/Icons). */
@@ -25,6 +30,7 @@ export type PlaceRowProps = {
 }
 
 const PlaceRow: React.FC<PlaceRowProps> = ({
+	surfaces,
 	title,
 	subtitle,
 	icon,
@@ -38,15 +44,26 @@ const PlaceRow: React.FC<PlaceRowProps> = ({
 		accessibilityRole="button"
 		accessibilityLabel={subtitle ? `${title}, ${subtitle}` : title}
 		android_ripple={{ color: colors.pressed }}
-		style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+		style={({ pressed }) => [
+			styles.row,
+			pressed && { backgroundColor: surfaces.fieldPressed },
+		]}
 	>
 		<View style={styles.iconWrap}>{icon}</View>
 		<View style={styles.texts}>
-			<Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+			<Text
+				style={[styles.title, { color: surfaces.text }]}
+				numberOfLines={1}
+				ellipsizeMode="tail"
+			>
 				{title}
 			</Text>
 			{!!subtitle && (
-				<Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+				<Text
+					style={[styles.subtitle, { color: surfaces.textMuted }]}
+					numberOfLines={1}
+					ellipsizeMode="tail"
+				>
 					{subtitle}
 				</Text>
 			)}
@@ -57,20 +74,17 @@ const PlaceRow: React.FC<PlaceRowProps> = ({
 
 const styles = StyleSheet.create({
 	row: {
-		minHeight: touchTarget + 8,
+		minHeight: touchTarget,
 		flexDirection: I18nManager.isRTL ? "row-reverse" : "row",
 		alignItems: "center",
-		gap: spacing.lg,
-		paddingHorizontal: spacing.xl,
-		paddingVertical: spacing.md,
-		borderRadius: radius.md,
-	},
-	pressed: {
-		backgroundColor: colors.pressed,
+		gap: spacing.md,
+		paddingHorizontal: spacing.md,
+		paddingVertical: spacing.sm,
+		borderRadius: radius.sm,
 	},
 	iconWrap: {
-		width: iconSize.xl,
-		height: iconSize.xl,
+		width: iconSize.lg,
+		height: iconSize.lg,
 		alignItems: "center",
 		justifyContent: "center",
 	},
@@ -80,16 +94,14 @@ const styles = StyleSheet.create({
 	},
 	title: {
 		...typography.body,
-		fontSize: 17,
+		fontSize: 15.5,
 		fontWeight: "600",
-		color: colors.textPrimary,
 		textAlign: I18nManager.isRTL ? "right" : "left",
 		writingDirection: I18nManager.isRTL ? "rtl" : "ltr",
 	},
 	subtitle: {
 		...typography.caption,
-		color: colors.textSecondary,
-		marginTop: 2,
+		marginTop: 1,
 		textAlign: I18nManager.isRTL ? "right" : "left",
 		writingDirection: I18nManager.isRTL ? "rtl" : "ltr",
 	},

@@ -1,16 +1,18 @@
 /**
- * DestinationSheet — flaminGO destination picker, rebuilt from scratch on
- * @gorhom/bottom-sheet. Replaces the old sheet + the old "رجوع" button entirely.
+ * DestinationSheet — flaminGO bottom sheet, rebuilt from scratch on
+ * @gorhom/bottom-sheet. The previous sheet is gone: nothing of it remains.
  *
- * • Snap points: collapsed / half / expanded.
- * • Collapsed: centered title + large premium search field.
- * • Expanded: drag handle, pickup + destination rows with vertical connector,
- *   current location, set on map, recent, saved, favorites.
- * • Typing renders suggestions INSIDE the same sheet — never a new screen.
- * • Closes only by dragging down or tapping outside (backdrop).
+ * ── Behaviour (Heetch parity) ──────────────────────────────────────────
+ * • INVERTED against the map: light map → charcoal sheet, dark map → white.
+ * • SMALL top corner radius (12), never the old 32pt pillow.
+ * • Collapsed: just the headline "إلى أين تريد الذهاب؟" + the search field.
+ * • Tapping the field NEVER opens a screen — the same sheet expands.
+ * • Fully draggable: three snap points, free-form drag, no forced close.
+ * • Expanded: pickup │ destination rail, then Current location / Set on map /
+ *   Favorites / Recent, then live suggestions — all inside the sheet.
+ * • `onSnapChange` lets the map hide the menu + theme buttons while open.
  *
- * PURE UI: search/geocoding/ride logic stays in the parent. This component only
- * calls the callbacks it is given.
+ * PURE UI: search, geocoding, routing and ride logic stay in the parent.
  */
 import BottomSheet, {
 	BottomSheetBackdrop,
@@ -20,6 +22,7 @@ import BottomSheet, {
 } from "@gorhom/bottom-sheet"
 import React, {
 	useCallback,
+	useImperativeHandle,
 	useMemo,
 	useRef,
 	useState,
@@ -27,6 +30,7 @@ import React, {
 } from "react"
 import {
 	ActivityIndicator,
+	I18nManager,
 	Keyboard,
 	StyleSheet,
 	Text,
@@ -39,6 +43,7 @@ import {
 	radius,
 	shadows,
 	spacing,
+	surfacesFor,
 	typography,
 } from "../../design/theme"
 import {
@@ -49,7 +54,7 @@ import {
 	TargetIcon,
 } from "../icons/Icons"
 import PlaceRow from "./PlaceRow"
-import RouteRows from "./RouteRows"
+import RouteRows, { type RouteTarget } from "./RouteRows"
 import SearchField from "./SearchField"
 
 export type PlaceKind = "recent" | "saved" | "favorite" | "suggestion"
@@ -62,50 +67,57 @@ export type PlaceItem = {
 }
 
 export type DestinationSheetCopy = {
-	/** Collapsed centered title. */
+	/** Collapsed headline. */
 	title: string
 	searchPlaceholder: string
 	pickupPlaceholder: string
 	destinationPlaceholder: string
 	currentLocation: string
 	setOnMap: string
-	recent: string
-	saved: string
 	favorites: string
+	recent: string
 	noResults: string
 }
 
 export const defaultCopyAr: DestinationSheetCopy = {
 	title: "إلى أين تريد الذهاب؟",
 	searchPlaceholder: "ابحث عن مكان",
-	pickupPlaceholder: "موقع الانطلاق",
+	pickupPlaceholder: "موقعي الحالي",
 	destinationPlaceholder: "إلى أين؟",
 	currentLocation: "موقعي الحالي",
 	setOnMap: "تحديد على الخريطة",
-	recent: "الأماكن الأخيرة",
-	saved: "الأماكن المحفوظة",
 	favorites: "المفضلة",
+	recent: "الأماكن الأخيرة",
 	noResults: "لا توجد نتائج",
 }
 
+export type DestinationSheetHandle = {
+	/** Expand the sheet and focus the search field. */
+	expand: () => void
+	/** Return to the collapsed headline + search state. */
+	collapse: () => void
+}
+
 export type DestinationSheetProps = {
+	/** Theme the MAP is drawn with — the sheet inverts it. */
+	mapTheme: "light" | "dark"
 	/** Text currently typed by the user (controlled by the parent). */
 	query: string
 	onChangeQuery: (text: string) => void
 	/** Suggestions produced by the parent's existing search logic. */
 	suggestions: PlaceItem[]
 	searching?: boolean
-	recent?: PlaceItem[]
-	saved?: PlaceItem[]
 	favorites?: PlaceItem[]
+	recent?: PlaceItem[]
 	pickupLabel: string
 	destinationLabel: string
+	/** Which point the user is currently editing. */
+	activeTarget: RouteTarget
+	onChangeTarget: (target: RouteTarget) => void
 	onSelectPlace: (place: PlaceItem) => void
 	onUseCurrentLocation: () => void
 	onSetOnMap: () => void
-	/** Called when the sheet is dismissed by drag-down or backdrop tap. */
-	onClose?: () => void
-	/** Notifies the parent so it can hide pin bubbles while expanded, etc. */
+	/** Fired on every snap change so the map can hide its floating buttons. */
 	onSnapChange?: (index: number) => void
 	copy?: Partial<DestinationSheetCopy>
 }
@@ -127,48 +139,47 @@ const iconForKind = (kind: PlaceKind): ReactElement => {
 	}
 }
 
-const DestinationSheet: React.FC<DestinationSheetProps> = ({
-	query,
-	onChangeQuery,
-	suggestions,
-	searching = false,
-	recent = [],
-	saved = [],
-	favorites = [],
-	pickupLabel,
-	destinationLabel,
-	onSelectPlace,
-	onUseCurrentLocation,
-	onSetOnMap,
-	onClose,
-	onSnapChange,
-	copy: copyOverride,
-}) => {
+const DestinationSheetInner: React.ForwardRefRenderFunction<
+	DestinationSheetHandle,
+	DestinationSheetProps
+> = (
+	{
+		mapTheme,
+		query,
+		onChangeQuery,
+		suggestions,
+		searching = false,
+		favorites = [],
+		recent = [],
+		pickupLabel,
+		destinationLabel,
+		activeTarget,
+		onChangeTarget,
+		onSelectPlace,
+		onUseCurrentLocation,
+		onSetOnMap,
+		onSnapChange,
+		copy: copyOverride,
+	},
+	ref,
+) => {
 	const sheetRef = useRef<BottomSheet>(null)
 	const inputRef = useRef<TextInput>(null)
 	const [index, setIndex] = useState(0)
 
+	const surfaces = useMemo(() => surfacesFor(mapTheme), [mapTheme])
 	const copy = useMemo(
 		() => ({ ...defaultCopyAr, ...copyOverride }),
 		[copyOverride],
 	)
 
-	/** Collapsed → half → expanded. */
-	const snapPoints = useMemo(() => ["26%", "55%", "92%"], [])
+	/**
+	 * Collapsed → half → full. Between them the sheet is freely draggable and
+	 * can be released at any height (gorhom keeps the momentum).
+	 */
+	const snapPoints = useMemo(() => ["22%", "55%", "92%"], [])
 	const expanded = index > 0
 	const searchMode = query.trim().length > 0
-
-	const handleChange = useCallback(
-		(next: number) => {
-			setIndex(next)
-			onSnapChange?.(next)
-			if (next <= 0) {
-				Keyboard.dismiss()
-				onClose?.()
-			}
-		},
-		[onClose, onSnapChange],
-	)
 
 	const expand = useCallback(() => {
 		sheetRef.current?.snapToIndex(2)
@@ -180,14 +191,25 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 		sheetRef.current?.snapToIndex(0)
 	}, [])
 
-	/** Backdrop: tapping outside collapses the sheet (Heetch behaviour). */
+	useImperativeHandle(ref, () => ({ expand, collapse }), [expand, collapse])
+
+	const handleChange = useCallback(
+		(next: number) => {
+			setIndex(next)
+			onSnapChange?.(next)
+			if (next <= 0) Keyboard.dismiss()
+		},
+		[onSnapChange],
+	)
+
+	/** Tapping outside brings the sheet back to the collapsed state. */
 	const renderBackdrop = useCallback(
 		(props: BottomSheetBackdropProps) => (
 			<BottomSheetBackdrop
 				{...props}
 				appearsOnIndex={1}
 				disappearsOnIndex={0}
-				opacity={0.45}
+				opacity={0.4}
 				pressBehavior="collapse"
 				onPress={collapse}
 			/>
@@ -208,26 +230,27 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 			if (!items.length) return
 			entries.push({ type: "section", id: `sec-${prefix}`, label })
 			items.forEach((place) =>
-				entries.push({
-					type: "place",
-					id: `${prefix}-${place.id}`,
-					place,
-				}),
+				entries.push({ type: "place", id: `${prefix}-${place.id}`, place }),
 			)
 		}
+		// Order requested: Favorites, then Recent.
 		push(copy.favorites, favorites, "fav")
-		push(copy.saved, saved, "sav")
 		push(copy.recent, recent, "rec")
 		return entries
-	}, [copy, favorites, recent, saved, searchMode, suggestions])
+	}, [copy, favorites, recent, searchMode, suggestions])
 
 	const renderItem = useCallback(
 		({ item }: { item: ListEntry }) => {
 			if (item.type === "section") {
-				return <Text style={styles.sectionLabel}>{item.label}</Text>
+				return (
+					<Text style={[styles.sectionLabel, { color: surfaces.textMuted }]}>
+						{item.label}
+					</Text>
+				)
 			}
 			return (
 				<PlaceRow
+					surfaces={surfaces}
 					title={item.place.title}
 					subtitle={item.place.subtitle}
 					icon={iconForKind(item.place.kind)}
@@ -238,48 +261,57 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 				/>
 			)
 		},
-		[onSelectPlace],
+		[onSelectPlace, surfaces],
 	)
 
+	/** Expanded header: the rail + the live search field + the two shortcuts. */
 	const header = (
 		<View style={styles.headerBlock}>
 			<RouteRows
+				surfaces={surfaces}
 				pickupLabel={pickupLabel}
 				pickupPlaceholder={copy.pickupPlaceholder}
 				destinationLabel={destinationLabel}
 				destinationPlaceholder={copy.destinationPlaceholder}
-				onPressPickup={expand}
-				onPressDestination={expand}
-				active="destination"
+				onPressPickup={() => {
+					onChangeTarget("pickup")
+					expand()
+				}}
+				onPressDestination={() => {
+					onChangeTarget("destination")
+					expand()
+				}}
+				active={activeTarget}
 			/>
 
-			<View style={styles.searchWrap}>
-				<SearchField
-					ref={inputRef}
-					value={query}
-					onChangeText={onChangeQuery}
-					placeholder={copy.searchPlaceholder}
-					onFocus={expand}
-				/>
-			</View>
+			<SearchField
+				ref={inputRef}
+				surfaces={surfaces}
+				value={query}
+				onChangeText={onChangeQuery}
+				placeholder={copy.searchPlaceholder}
+				trailing={
+					searching ? (
+						<ActivityIndicator size="small" color={colors.gold} />
+					) : undefined
+				}
+			/>
 
 			{!searchMode && (
 				<View style={styles.quickActions}>
 					<PlaceRow
+						surfaces={surfaces}
 						title={copy.currentLocation}
 						icon={<TargetIcon size={iconSize.md} />}
 						onPress={onUseCurrentLocation}
 					/>
 					<PlaceRow
+						surfaces={surfaces}
 						title={copy.setOnMap}
 						icon={<MapPinIcon size={iconSize.md} />}
 						onPress={onSetOnMap}
 					/>
 				</View>
-			)}
-
-			{searchMode && searching && (
-				<ActivityIndicator color={colors.gold} style={styles.loader} />
 			)}
 		</View>
 	)
@@ -290,13 +322,21 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 			index={0}
 			snapPoints={snapPoints}
 			onChange={handleChange}
+			enableDynamicSizing={false}
 			enablePanDownToClose={false}
+			enableOverDrag
 			keyboardBehavior="interactive"
 			keyboardBlurBehavior="restore"
 			androidKeyboardInputMode="adjustResize"
 			backdropComponent={renderBackdrop}
-			backgroundStyle={styles.sheetBackground}
-			handleIndicatorStyle={styles.handle}
+			backgroundStyle={[
+				styles.sheetBackground,
+				{ backgroundColor: surfaces.sheet },
+			]}
+			handleIndicatorStyle={[
+				styles.handle,
+				{ backgroundColor: surfaces.handle },
+			]}
 			style={styles.sheetShadow}
 		>
 			{expanded ? (
@@ -307,7 +347,9 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 					ListHeaderComponent={header}
 					ListEmptyComponent={
 						searchMode && !searching ? (
-							<Text style={styles.empty}>{copy.noResults}</Text>
+							<Text style={[styles.empty, { color: surfaces.textMuted }]}>
+								{copy.noResults}
+							</Text>
 						) : null
 					}
 					keyboardShouldPersistTaps="handled"
@@ -316,14 +358,21 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 				/>
 			) : (
 				<BottomSheetView style={styles.collapsed}>
-					<Text style={styles.collapsedTitle} numberOfLines={2}>
+					<Text
+						style={[styles.headline, { color: surfaces.text }]}
+						numberOfLines={2}
+					>
 						{copy.title}
 					</Text>
 					<SearchField
+						surfaces={surfaces}
 						readOnly
 						value={destinationLabel}
 						placeholder={copy.searchPlaceholder}
-						onPress={expand}
+						onPress={() => {
+							onChangeTarget("destination")
+							expand()
+						}}
 					/>
 				</BottomSheetView>
 			)}
@@ -332,8 +381,8 @@ const DestinationSheet: React.FC<DestinationSheetProps> = ({
 }
 
 const styles = StyleSheet.create({
+	/** Small corners — the single most Heetch-defining detail. */
 	sheetBackground: {
-		backgroundColor: colors.white,
 		borderTopLeftRadius: radius.sheet,
 		borderTopRightRadius: radius.sheet,
 	},
@@ -341,55 +390,49 @@ const styles = StyleSheet.create({
 		...shadows.sheet,
 	},
 	handle: {
-		backgroundColor: colors.divider,
-		width: 44,
-		height: 5,
-		borderRadius: radius.pill,
+		width: 38,
+		height: 4,
+		borderRadius: radius.xs,
 	},
 	collapsed: {
 		paddingHorizontal: spacing.xl,
 		paddingTop: spacing.sm,
-		paddingBottom: spacing["3xl"],
-		gap: spacing.xl,
-	},
-	collapsedTitle: {
-		...typography.title,
-		color: colors.textPrimary,
-		textAlign: "center",
-	},
-	headerBlock: {
-		paddingBottom: spacing.sm,
 		gap: spacing.lg,
 	},
-	searchWrap: {
-		paddingHorizontal: spacing.xl,
+	headline: {
+		...typography.headline,
+		textAlign: I18nManager.isRTL ? "right" : "left",
+		writingDirection: I18nManager.isRTL ? "rtl" : "ltr",
+	},
+	headerBlock: {
+		paddingHorizontal: spacing.lg,
+		paddingBottom: spacing.sm,
+		gap: spacing.md,
 	},
 	quickActions: {
-		paddingHorizontal: spacing.xs,
+		marginTop: spacing.xs,
 	},
 	sectionLabel: {
 		...typography.caption,
 		fontWeight: "700",
-		color: colors.textSecondary,
+		letterSpacing: 0.6,
+		textTransform: "uppercase",
 		paddingHorizontal: spacing.xl,
 		paddingTop: spacing.lg,
-		paddingBottom: spacing.sm,
-		textTransform: "uppercase",
-		letterSpacing: 0.6,
+		paddingBottom: spacing.xs,
+		textAlign: I18nManager.isRTL ? "right" : "left",
 	},
 	listContent: {
 		paddingBottom: spacing["4xl"],
-		paddingHorizontal: spacing.xs,
-	},
-	loader: {
-		marginTop: spacing.lg,
 	},
 	empty: {
 		...typography.body,
-		color: colors.textSecondary,
 		textAlign: "center",
 		paddingVertical: spacing["3xl"],
 	},
 })
+
+const DestinationSheet = React.forwardRef(DestinationSheetInner)
+DestinationSheet.displayName = "DestinationSheet"
 
 export default DestinationSheet

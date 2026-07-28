@@ -258,3 +258,149 @@ export const ChevronIcon: React.FC<
 		</Svg>
 	)
 }
+
+/** Small camera badge pinned to the drawer avatar. */
+export const CameraIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.black,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Path
+				d="M3.6 8.4h3.2l1.4-2.2h7.6l1.4 2.2h3.2a.9.9 0 0 1 .9.9v9a.9.9 0 0 1-.9.9H3.6a.9.9 0 0 1-.9-.9v-9a.9.9 0 0 1 .9-.9Z"
+				fill={color}
+			/>
+			<Circle cx={12} cy={13.6} r={3.6} fill={colors.gold} />
+		</Svg>
+	)
+}
+
+export const MoonIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Path
+				d="M20 14.4A8.4 8.4 0 0 1 9.6 4 8.4 8.4 0 1 0 20 14.4Z"
+				fill={color}
+			/>
+		</Svg>
+	)
+}
+
+export const SunIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Circle cx={12} cy={12} r={4.4} fill={color} />
+			<Path
+				d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.6 4.6l1.9 1.9M17.5 17.5l1.9 1.9M19.4 4.6l-1.9 1.9M6.5 17.5l-1.9 1.9"
+				stroke={color}
+				strokeWidth={2}
+				strokeLinecap="round"
+			/>
+		</Svg>
+	)
+}
+
+/** Wallet glyph used by the wallet screen header. */
+export const WalletIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Rect
+				x={3}
+				y={6}
+				width={18}
+				height={13}
+				rx={2.5}
+				stroke={color}
+				strokeWidth={2}
+				fill="none"
+			/>
+			<Circle cx={16.6} cy={12.5} r={1.6} fill={color} />
+		</Svg>
+	)
+}
+
+/** QR frame glyph (wallet top-up / send credit). */
+export const QrIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Path
+				d="M3.4 8.4V4.9a1.5 1.5 0 0 1 1.5-1.5h3.5M15.6 3.4h3.5a1.5 1.5 0 0 1 1.5 1.5v3.5M20.6 15.6v3.5a1.5 1.5 0 0 1-1.5 1.5h-3.5M8.4 20.6H4.9a1.5 1.5 0 0 1-1.5-1.5v-3.5"
+				stroke={color}
+				strokeWidth={2}
+				strokeLinecap="round"
+				fill="none"
+			/>
+			<Rect x={8.6} y={8.6} width={6.8} height={6.8} rx={1.2} fill={color} />
+		</Svg>
+	)
+}
+
+/** Paper-plane glyph (send credit / send a help request). */
+export const SendIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Path d="M3.2 11.4 20.4 4l-7.4 17.2-2.2-7.6-7.6-2.2Z" fill={color} />
+		</Svg>
+	)
+}
+
+/** Coupon / ticket glyph. */
+export const TicketIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Path
+				d="M3.4 7.4a1.5 1.5 0 0 1 1.5-1.5h14.2a1.5 1.5 0 0 1 1.5 1.5v2.2a2.4 2.4 0 0 0 0 4.8v2.2a1.5 1.5 0 0 1-1.5 1.5H4.9a1.5 1.5 0 0 1-1.5-1.5v-2.2a2.4 2.4 0 0 0 0-4.8V7.4Z"
+				stroke={color}
+				strokeWidth={2}
+				fill="none"
+				strokeLinejoin="round"
+			/>
+		</Svg>
+	)
+}
+
+/** Life-buoy glyph for the help screen. */
+export const HelpIcon: React.FC<IconProps> = ({
+	size,
+	color = colors.gold,
+}) => {
+	const s = base(size)
+	return (
+		<Svg width={s} height={s} viewBox="0 0 24 24">
+			<Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={2} fill="none" />
+			<Path
+				d="M9.4 9.2a2.8 2.8 0 1 1 3.6 3.2c-.7.3-1 .9-1 1.6v.4"
+				stroke={color}
+				strokeWidth={2}
+				strokeLinecap="round"
+				fill="none"
+			/>
+			<Circle cx={12} cy={17.4} r={1.2} fill={color} />
+		</Svg>
+	)
+}

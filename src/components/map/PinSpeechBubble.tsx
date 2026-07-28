@@ -1,6 +1,11 @@
 /**
- * PinSpeechBubble — the "Pickup here" / "Dropoff here" bubble above a map pin.
- * Driven by a shared value so it fades + scales + springs in 200ms.
+ * PinSpeechBubble — the small label that plants itself above a map pin.
+ *
+ * It is driven by a shared value owned by MapPinBase so the timing is part of
+ * the pin choreography: it fades OUT first when the map starts moving, and it
+ * only fades + scales IN once the pin has landed on the origin dot.
+ *
+ * flaminGO identity: charcoal capsule-free block, small radius, gold text.
  */
 import React from "react"
 import { StyleSheet, Text, View } from "react-native"
@@ -20,12 +25,12 @@ import {
 
 export type PinSpeechBubbleProps = {
 	label: string
-	/** 0 = hidden, 1 = fully visible. */
+	/** 0 = hidden, 1 = fully visible. Owned by MapPinBase. */
 	progress: SharedValue<number>
 }
 
-const TAIL_WIDTH = 14
-const TAIL_HEIGHT = 7
+const TAIL_WIDTH = 10
+const TAIL_HEIGHT = 5
 
 const PinSpeechBubble: React.FC<PinSpeechBubbleProps> = ({
 	label,
@@ -34,8 +39,8 @@ const PinSpeechBubble: React.FC<PinSpeechBubbleProps> = ({
 	const style = useAnimatedStyle(() => ({
 		opacity: progress.value,
 		transform: [
-			{ translateY: interpolate(progress.value, [0, 1], [8, 0]) },
-			{ scale: interpolate(progress.value, [0, 1], [0.9, 1]) },
+			{ translateY: interpolate(progress.value, [0, 1], [6, 0]) },
+			{ scale: interpolate(progress.value, [0, 1], [0.88, 1]) },
 		],
 	}))
 
@@ -49,7 +54,7 @@ const PinSpeechBubble: React.FC<PinSpeechBubbleProps> = ({
 			<Svg width={TAIL_WIDTH} height={TAIL_HEIGHT} style={styles.tail}>
 				<Path
 					d={`M0 0 H${TAIL_WIDTH} L${TAIL_WIDTH / 2} ${TAIL_HEIGHT} Z`}
-					fill={colors.white}
+					fill={colors.black}
 				/>
 			</Svg>
 		</Animated.View>
@@ -59,21 +64,23 @@ const PinSpeechBubble: React.FC<PinSpeechBubbleProps> = ({
 const styles = StyleSheet.create({
 	root: {
 		alignItems: "center",
-		marginBottom: spacing.sm,
+		marginBottom: spacing.xs,
 	},
 	bubble: {
-		backgroundColor: colors.white,
-		paddingHorizontal: spacing.lg,
-		paddingVertical: spacing.md - 2,
-		borderRadius: radius.md,
-		maxWidth: 190,
+		backgroundColor: colors.black,
+		paddingHorizontal: spacing.md,
+		paddingVertical: spacing.sm - 2,
+		borderRadius: radius.sm,
+		borderWidth: 1,
+		borderColor: colors.gold,
+		maxWidth: 170,
 		...shadows.floating,
 	},
 	label: {
 		...typography.caption,
-		fontSize: 14,
+		fontSize: 12,
 		fontWeight: "700",
-		color: colors.textPrimary,
+		color: colors.gold,
 		textAlign: "center",
 	},
 	tail: {

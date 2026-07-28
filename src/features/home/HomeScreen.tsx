@@ -11,9 +11,7 @@ import {
   View,
 } from "react-native";
 import MapView, { AnimatedRegion, LatLng, Marker, Polyline, type Region } from "react-native-maps";
-import Svg, { Circle, Path, Rect } from "react-native-svg";
 import * as Location from "expo-location";
-import { FlashList } from "@shopify/flash-list";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Animated, {
   Easing,
@@ -55,6 +53,18 @@ import { passengerApi } from "../trip/trip-api";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/types";
 import { passengerServicesApi, type PassengerPaymentMethod } from "../../core/passenger-api";
+import PickupPin from "../../components/map/PickupPin";
+import DropoffPin from "../../components/map/DropoffPin";
+import { PIN_HEIGHT } from "../../components/map/MapPinBase";
+import MapFloatingButton from "../../components/map/MapFloatingButton";
+import DestinationSheet, {
+  type PlaceItem,
+} from "../../components/destination/DestinationSheet";
+import SideDrawer, {
+  type DrawerMenuKey,
+} from "../../components/drawer/SideDrawer";
+import { MenuIcon, MoonIcon, SunIcon } from "../../components/icons/Icons";
+import { pickImageFromLibrary } from "../menu/media";
 
 type SearchTarget = "pickup" | "destination" | `stop:${number}`;
 // Intermediate stops are addressed as "stop:0", "stop:1", ... so a single
@@ -127,11 +137,6 @@ const assetFallbackByClass: Record<string, string> = {
   XL: "vehicle.category.family",
   BIKE: "vehicle.category.bike",
 };
-// Single toggle button: shows the mode the tap will switch to.
-const THEME_ICON: Record<string, string> = {
-  light: "\u25D0",
-  dark: "\u25D1",
-};
 
 // ---------------------------------------------------------------------------
 // flaminGO map pin (gold) — replaces the old grey dot / square markers.
@@ -143,130 +148,6 @@ const THEME_ICON: Record<string, string> = {
 //
 // Pure UI: the pin never touches the map, geocoding or snapping logic.
 // ---------------------------------------------------------------------------
-const PIN = {
-  head: 44,
-  stem: 32,
-  stemWidth: 5,
-  dot: 9,
-  dotGap: 7,
-  glyph: 22,
-  gold: "#D4AF37",
-  ink: "#111111",
-} as const;
-export const PIN_TOTAL_HEIGHT = PIN.head + PIN.stem + PIN.dotGap + PIN.dot;
-
-// Gold person glyph (pickup) drawn in black on the gold head.
-function PersonGlyph({ color }: { color: string }) {
-  return (
-    <Svg width={PIN.glyph} height={PIN.glyph} viewBox="0 0 24 24">
-      <Circle cx={12} cy={8} r={3.6} fill={color} />
-      <Path
-        d="M4.6 19.6c0-3.8 3.3-6.4 7.4-6.4s7.4 2.6 7.4 6.4a.9.9 0 0 1-.9.9H5.5a.9.9 0 0 1-.9-.9Z"
-        fill={color}
-      />
-    </Svg>
-  );
-}
-
-// Checkered finish flag glyph (drop-off), same size as the person glyph.
-function FlagGlyph({ color }: { color: string }) {
-  const cell = 3;
-  const x0 = 8.4;
-  const y0 = 5.2;
-  const squares: React.ReactElement[] = [];
-  for (let row = 0; row < 3; row += 1) {
-    for (let col = 0; col < 3; col += 1) {
-      if ((row + col) % 2 !== 0) continue;
-      squares.push(
-        <Rect
-          key={`${row}-${col}`}
-          x={x0 + col * cell}
-          y={y0 + row * cell}
-          width={cell}
-          height={cell}
-          fill={color}
-        />,
-      );
-    }
-  }
-  return (
-    <Svg width={PIN.glyph} height={PIN.glyph} viewBox="0 0 24 24">
-      <Path d="M6.4 3.8V20.2" stroke={color} strokeWidth={2} strokeLinecap="round" />
-      <Rect
-        x={x0 - 1}
-        y={y0 - 1}
-        width={cell * 3 + 2}
-        height={cell * 3 + 2}
-        rx={1}
-        stroke={color}
-        strokeWidth={1.4}
-        fill="none"
-      />
-      {squares}
-    </Svg>
-  );
-}
-
-// kind: "pickup" (person glyph, solid gold head) or "dropoff" (flag glyph,
-// gold ring head). dragging: shows the detached dot under the stem.
-function FlamingoPin({
-  kind,
-  label,
-  dragging,
-  styles,
-}: {
-  kind: "pickup" | "dropoff";
-  label?: string;
-  dragging?: boolean;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  const solid = kind === "pickup";
-  return (
-    <View pointerEvents="none" style={styles.pinRoot}>
-      {label ? (
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(160)}
-          style={styles.pinBubbleWrap}
-        >
-          <View style={styles.pinBubble}>
-            <Text numberOfLines={1} style={styles.pinBubbleText}>
-              {label}
-            </Text>
-          </View>
-          <Svg width={16} height={8} style={styles.pinBubbleTail}>
-            <Path d="M0 0 H16 L8 8 Z" fill={PIN.gold} />
-          </Svg>
-        </Animated.View>
-      ) : null}
-      <View style={styles.pinHeadWrap}>
-        <Svg width={PIN.head} height={PIN.head} style={StyleSheet.absoluteFill}>
-          <Circle
-            cx={PIN.head / 2}
-            cy={PIN.head / 2}
-            r={PIN.head / 2 - 2}
-            fill={solid ? PIN.gold : PIN.ink}
-            stroke={PIN.gold}
-            strokeWidth={solid ? 0 : 3.5}
-          />
-        </Svg>
-        {solid ? (
-          <PersonGlyph color={PIN.ink} />
-        ) : (
-          <FlagGlyph color={PIN.gold} />
-        )}
-      </View>
-      <View style={styles.pinStem} />
-      {dragging ? (
-        <Animated.View
-          entering={FadeIn.duration(160)}
-          exiting={FadeOut.duration(140)}
-          style={styles.pinDot}
-        />
-      ) : null}
-    </View>
-  );
-}
 
 export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
   const profile = useSession((s) => s.profile);
@@ -287,6 +168,10 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   // True while the map is moving under the centre pin: shows the detached gold
   // dot and hides it again as soon as the point is snapped to the road.
   const [pinDragging, setPinDragging] = useState(false);
+  // Drawer + bottom-sheet position are pure presentation state: the map hides
+  // its floating controls while the sheet is expanded, exactly like Heetch.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const pinRegion = useRef<Region | null>(null);
   const [selected, setSelected] = useState<VehicleType | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -718,6 +603,21 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       </View>
     );
   const driverVisible = trip?.driverLat != null && trip.driverLng != null;
+  // Suggestions are mapped 1:1 to sheet rows; the id is the index so the row
+  // can be resolved back to the untouched API result on selection.
+  const placeItems: PlaceItem[] = useMemo(
+    () =>
+      (suggestions.data ?? []).map((item, index) => ({
+        id: String(index),
+        title: String(
+          item.address ?? item.description ?? item.label ?? item.name ?? "",
+        ),
+        subtitle:
+          item.description && item.address ? String(item.description) : undefined,
+        kind: "suggestion" as const,
+      })),
+    [suggestions.data],
+  );
   const searchOpen = !!searchTarget;
   const activeStopIndex = stopIndexOf(searchTarget);
   // Drops the slots the passenger opened but never filled.
@@ -735,61 +635,6 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         ? "home.stopHint"
         : "home.destinationHint";
 
-  // One row of the route editor: reads as text, becomes an input once active.
-  const renderRouteField = (
-    target: SearchTarget,
-    label: string,
-    value: string | undefined,
-    marker: JSX.Element,
-    onRemove?: () => void,
-  ) => {
-    const active = searchTarget === target;
-    return (
-      <View
-        key={target}
-        style={[styles.routeField, active && styles.routeFieldActive]}
-      >
-        {marker}
-        <View style={styles.flex}>
-          <Text style={styles.label}>{tr(messages, label)}</Text>
-          {active ? (
-            <TextInput
-              autoFocus
-              value={search}
-              onChangeText={setSearch}
-              placeholder={tr(messages, hintFor(target))}
-              placeholderTextColor={palette.textMuted}
-              style={styles.routeInput}
-            />
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setSearch("");
-                setSearchTarget(target);
-              }}
-            >
-              <Text
-                numberOfLines={1}
-                style={[styles.locationText, !value && styles.muted]}
-              >
-                {value || tr(messages, hintFor(target))}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-        {onRemove ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onRemove}
-            style={styles.routeRemove}
-          >
-            <Text style={styles.quickIconText}>{"\u00D7"}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  };
   return (
     <View style={styles.root}>
       <MapView
@@ -822,11 +667,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           anchor={{ x: 0.5, y: 1 }}
           tracksViewChanges={false}
         >
-          <FlamingoPin
-            kind="pickup"
-            label={tr(messages, "home.pickupHere")}
-            styles={styles}
-          />
+          <PickupPin label={tr(messages, "home.pickupHere")} state="snapped" />
         </Marker>
         {destination ? (
           <Marker
@@ -837,10 +678,9 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={false}
           >
-            <FlamingoPin
-              kind="dropoff"
+            <DropoffPin
               label={tr(messages, "home.dropoffHere")}
-              styles={styles}
+              state="snapped"
             />
           </Marker>
         ) : null}
@@ -875,27 +715,28 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             />
           </Marker.Animated>
         ) : null}
+        {/* Route: dimmed while a pin is dragged, redrawn right after it lands. */}
         {route.data?.length ? (
           <>
             {/* Grey base stroke, gold top stroke, then a soft light that
                 slides from the pickup to the destination. */}
             <Polyline
               coordinates={route.data}
-              strokeColor={withAlpha(palette.routeBase, 0.45)}
+              strokeColor={withAlpha(palette.routeBase, pinDragging ? 0.12 : 0.45)}
               strokeWidth={14}
               lineCap="round"
               lineJoin="round"
             />
             <Polyline
               coordinates={route.data}
-              strokeColor={palette.routeBase}
+              strokeColor={withAlpha(palette.routeBase, pinDragging ? 0.25 : 1)}
               strokeWidth={9}
               lineCap="round"
               lineJoin="round"
             />
             <Polyline
               coordinates={route.data}
-              strokeColor={palette.accent}
+              strokeColor={withAlpha(palette.accent, pinDragging ? 0.25 : 1)}
               strokeWidth={5}
               lineCap="round"
               lineJoin="round"
@@ -922,25 +763,27 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         ) : null}
       </MapView>
 
-      {/* Floating circular controls over the map (Heetch style). */}
-      <Pressable
-        accessibilityRole="button"
+      {/* Floating controls: they disappear while the sheet is expanded. */}
+      <MapFloatingButton
+        mapTheme={themeName === "dark" ? "dark" : "light"}
+        hidden={sheetOpen}
+        side="start"
+        top={54}
         accessibilityLabel={tr(messages, "menu.title")}
-        onPress={() => navigation.navigate("Menu")}
-        style={[styles.floating, styles.floatingLeft]}
+        onPress={() => setDrawerOpen(true)}
       >
-        <Text style={styles.floatingIcon}>{"\u2630"}</Text>
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
+        <MenuIcon size={22} color={palette.text} />
+      </MapFloatingButton>
+      <MapFloatingButton
+        mapTheme={themeName === "dark" ? "dark" : "light"}
+        hidden={sheetOpen}
+        side="end"
+        top={54}
         accessibilityLabel={tr(messages, "theme.title")}
         onPress={() => setMode(nextMode(themeName))}
-        style={[styles.floating, styles.floatingRight]}
       >
-        <Text style={styles.floatingIcon}>
-          {THEME_ICON[themeName] ?? THEME_ICON.light}
-        </Text>
-      </Pressable>
+        {themeName === "dark" ? <SunIcon size={22} /> : <MoonIcon size={22} />}
+      </MapFloatingButton>
 
       {/* "Press back again to exit" hint. */}
       {exitHint ? (
@@ -960,118 +803,46 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           while dragging, dot removed once the point snaps to the road. */}
       {pinMode ? (
         <View pointerEvents="none" style={styles.pinWrap}>
-          <FlamingoPin
-            kind={pinMode === "pickup" ? "pickup" : "dropoff"}
-            label={tr(
-              messages,
-              pinMode === "pickup" ? "home.pickupHere" : "home.dropoffHere",
-            )}
-            dragging={pinDragging}
-            styles={styles}
-          />
+          {pinMode === "pickup" ? (
+            <PickupPin
+              label={tr(messages, "home.pickupHere")}
+              state={pinDragging ? "dragging" : "snapped"}
+            />
+          ) : (
+            <DropoffPin
+              label={tr(messages, "home.dropoffHere")}
+              state={pinDragging ? "dragging" : "snapped"}
+            />
+          )}
         </View>
       ) : null}
 
-      {searchOpen ? (
-        <Animated.View
-          entering={SlideInDown.springify().damping(20)}
-          exiting={SlideOutDown.duration(180)}
-          style={styles.searchSheet}
-        >
-          <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>{tr(messages, "home.whereTo")}</Text>
-          <View style={styles.routeEditor}>
-            {renderRouteField(
-              "pickup",
-              "home.pickup",
-              pickup.address,
-              <View style={styles.routeDot} />,
-            )}
-            {stops.map((stop, index) =>
-              renderRouteField(
-                stopTarget(index),
-                "home.stop",
-                stop?.address,
-                <View style={styles.routeStopDot} />,
-                () => {
-                  setStops((current) =>
-                    current.filter((_, position) => position !== index),
-                  );
-                  if (activeStopIndex === index) {
-                    setSearch("");
-                    setSearchTarget("destination");
-                  }
-                },
-              ),
-            )}
-            {renderRouteField(
-              "destination",
-              "home.destination",
-              destination?.address,
-              <View style={styles.routeSquare} />,
-            )}
-          </View>
-          {stops.length < MAX_STOPS ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                const index = stops.length;
-                setStops((current) => [...current, null]);
-                setSearch("");
-                setSearchTarget(stopTarget(index));
-              }}
-              style={styles.addStop}
-            >
-              <Text style={styles.addStopIcon}>{"\uFF0B"}</Text>
-              <Text style={styles.addStopText}>
-                {tr(messages, "home.addStop")}
-              </Text>
-            </Pressable>
-          ) : null}
-          <Pressable onPress={() => void useDeviceLocation()} style={styles.quickRow}>
-            <View style={styles.quickIcon}>
-              <Text style={styles.quickIconText}>{"\u25C9"}</Text>
-            </View>
-            <Text style={styles.locationText}>
-              {tr(messages, "home.currentLocation")}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              setPinMode(searchTarget);
-              closeSearch();
-            }}
-            style={styles.quickRow}
-          >
-            <View style={styles.quickIcon}>
-              <Text style={styles.quickIconText}>{"\u2316"}</Text>
-            </View>
-            <Text style={styles.locationText}>
-              {tr(messages, "home.chooseOnMap")}
-            </Text>
-          </Pressable>
-          <View style={styles.suggestionList}>
-            <FlashList
-              data={suggestions.data ?? []}
-              estimatedItemSize={64}
-              keyboardShouldPersistTaps="handled"
-              keyExtractor={(x, i) => String(x.id ?? x.placeId ?? i)}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => void choosePlace(item)}
-                  style={styles.suggestion}
-                >
-                  <Text numberOfLines={2} style={styles.locationText}>
-                    {item.address ??
-                      item.description ??
-                      item.label ??
-                      item.name}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          </View>
-        </Animated.View>
+      {/* Heetch-style sheet: collapsed it only shows the headline + search
+          field, tapping it expands the SAME sheet, and pickup/destination are
+          chosen inside it. Never a separate screen. */}
+      {!trip && !pinMode ? (
+        <DestinationSheet
+          mapTheme={themeName === "dark" ? "dark" : "light"}
+          query={search}
+          onChangeQuery={setSearch}
+          searching={suggestions.isFetching}
+          suggestions={placeItems}
+          pickupLabel={pickup.address ?? ""}
+          destinationLabel={destination?.address ?? ""}
+          activeTarget={searchTarget === "pickup" ? "pickup" : "destination"}
+          onChangeTarget={(target) => setSearchTarget(target)}
+          onSelectPlace={(item: PlaceItem) => {
+            const source = (suggestions.data ?? [])[Number(item.id)];
+            if (source) void choosePlace(source);
+          }}
+          onUseCurrentLocation={() => void useDeviceLocation()}
+          onSetOnMap={() => {
+            setPinMode(searchTarget ?? "destination");
+            closeSearch();
+          }}
+          onSnapChange={(index) => setSheetOpen(index > 0)}
+          copy={{ title: tr(messages, "home.whereTo") }}
+        />
       ) : null}
 
       {pinMode && !trip ? (
@@ -1365,6 +1136,42 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           onClose={resetRide}
         />
       ) : null}
+
+      {/* flaminGO drawer: profile card, five entries, languages + theme. */}
+      <SideDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        mapTheme={themeName === "dark" ? "dark" : "light"}
+        userName={profile?.name ?? ""}
+        avatarUrl={profile?.avatarUrl}
+        tripCount={Number(profile?.tripCount ?? 0)}
+        rating={Number(profile?.rating ?? 0)}
+        activeLocale={(profile?.locale as "ar" | "fr" | "en") ?? "ar"}
+        onSelect={(key: DrawerMenuKey) => {
+          setDrawerOpen(false);
+          if (key === "account") navigation.navigate("Profile");
+          else if (key === "wallet") navigation.navigate("Wallet");
+          else if (key === "trips") navigation.navigate("Trips");
+          else if (key === "coupons") navigation.navigate("Coupons");
+          else navigation.navigate("Support");
+        }}
+        onChangeAvatar={() => {
+          void pickImageFromLibrary().then((uri) => {
+            if (!uri) return;
+            return passengerServicesApi
+              .updateProfile({ avatarUrl: uri })
+              .then((updated) => useSession.setState({ profile: updated }))
+              .catch((error) => reportError(error, "drawer.avatar"));
+          });
+        }}
+        onChangeLocale={(locale) => {
+          void passengerServicesApi
+            .updateProfile({ locale })
+            .then((updated) => useSession.setState({ profile: updated }))
+            .catch((error) => reportError(error, "drawer.locale"));
+        }}
+        onToggleTheme={() => setMode(nextMode(themeName))}
+      />
     </View>
   );
 }
@@ -1838,23 +1645,7 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       gap: 14,
     },
     flex: { flex: 1 },
-    floating: {
-      position: "absolute",
-      zIndex: 20,
-      top: 54,
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: overlay,
-      borderWidth: 1,
-      borderColor: palette.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    floatingLeft: { left: 16 },
-    floatingRight: { right: 16 },
-    floatingIcon: { color: palette.text, fontSize: 22, fontWeight: "800" },
-    // --- flaminGO gold pin -------------------------------------------------
+    // --- flaminGO map pin overlay -----------------------------------------
     pinWrap: {
       position: "absolute",
       top: "50%",
@@ -1862,55 +1653,7 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       right: 0,
       alignItems: "center",
       zIndex: 10,
-      transform: [{ translateY: -PIN_TOTAL_HEIGHT }],
-    },
-    pinRoot: { alignItems: "center" },
-    pinBubbleWrap: { alignItems: "center", marginBottom: 6 },
-    pinBubble: {
-      minHeight: 34,
-      justifyContent: "center",
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-      borderRadius: RADIUS.pill,
-      backgroundColor: PIN.gold,
-      shadowColor: PIN.gold,
-      shadowOpacity: 0.35,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 6,
-    },
-    pinBubbleText: {
-      fontSize: 14,
-      fontWeight: "900",
-      color: PIN.ink,
-      letterSpacing: 0.2,
-    },
-    pinBubbleTail: { marginTop: -1 },
-    pinHeadWrap: {
-      width: PIN.head,
-      height: PIN.head,
-      alignItems: "center",
-      justifyContent: "center",
-      shadowColor: PIN.gold,
-      shadowOpacity: 0.35,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 8,
-    },
-    pinStem: {
-      width: PIN.stemWidth,
-      height: PIN.stem,
-      marginTop: -2,
-      borderBottomLeftRadius: PIN.stemWidth / 2,
-      borderBottomRightRadius: PIN.stemWidth / 2,
-      backgroundColor: PIN.gold,
-    },
-    pinDot: {
-      width: PIN.dot,
-      height: PIN.dot,
-      borderRadius: PIN.dot / 2,
-      marginTop: PIN.dotGap,
-      backgroundColor: PIN.gold,
+      transform: [{ translateY: -PIN_HEIGHT }],
     },
     locationRow: {
       minHeight: 58,
@@ -1930,20 +1673,6 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       marginTop: 2,
     },
     muted: { fontSize: 14, color: palette.textMuted, lineHeight: 20 },
-    searchSheet: {
-      position: "absolute",
-      top: 44,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: palette.bg,
-      padding: SPACING.xl,
-      borderTopLeftRadius: RADIUS.sheet,
-      borderTopRightRadius: RADIUS.sheet,
-      borderTopWidth: 1,
-      borderColor: withAlpha(palette.border, 0.7),
-      ...SHADOW.sheet,
-    },
     quickRow: {
       minHeight: 56,
       flexDirection: "row",
@@ -2073,15 +1802,15 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       borderRadius: 11,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: PIN.ink,
+      backgroundColor: "#111111",
       borderWidth: 3,
-      borderColor: PIN.gold,
+      borderColor: "#D4AF37",
     },
     stopMarkerCore: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: PIN.gold,
+      backgroundColor: "#D4AF37",
     },
     bottomSheet: {
       position: "absolute",

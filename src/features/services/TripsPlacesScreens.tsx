@@ -13,56 +13,6 @@ import { TripHistoryCard } from "../../components/TripHistoryCard";
 import type { Trip } from "../../core/contracts";
 import type { RootStackParamList } from "../../navigation/types";
 
-export function TripsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Trips">) {
-  const { locale, messages } = useMessages(), ui = useUi();
-  // كل الرحلات السابقة: تحميل تدريجي صفحة بعد صفحة عند بلوغ نهاية القائمة.
-  const query = useInfiniteQuery({
-    queryKey: ["passenger-trips"],
-    queryFn: ({ pageParam }) => passengerServicesApi.trips(pageParam as number),
-    initialPageParam: 1,
-    getNextPageParam: (last: { page: number; limit: number; total: number }) =>
-      last.page * last.limit < last.total ? last.page + 1 : undefined,
-  });
-  const items = query.data?.pages.flatMap((entry) => entry.items) ?? [];
-  const total = query.data?.pages[0]?.total ?? 0;
-  return (
-    <Screen title={tr(messages, "trips.title")} onBack={navigation.goBack} scroll={false}>
-      <View style={{ flex: 1, padding: 16 }}>
-        {query.isPending ? (
-          <Loading />
-        ) : query.isError ? (
-          <Message danger>{tr(messages, "common.error")}</Message>
-        ) : (
-          <FlashList
-            data={items}
-            estimatedItemSize={132}
-            ListHeaderComponent={
-              total ? (
-                <Text style={ui.section}>{`${tr(messages, "trips.total")}: ${total}`}</Text>
-              ) : null
-            }
-            ListEmptyComponent={<EmptyState art="trips" title={tr(messages, "trips.empty")}/>}
-            ListFooterComponent={query.isFetchingNextPage ? <Loading /> : null}
-            onEndReachedThreshold={0.4}
-            onEndReached={() => {
-              if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
-            }}
-            refreshing={query.isRefetching && !query.isFetchingNextPage}
-            onRefresh={() => void query.refetch()}
-            renderItem={({ item }) => (
-              <TripHistoryCard
-                trip={item as unknown as Trip}
-                locale={locale}
-                messages={messages}
-                onPress={() => navigation.navigate("TripDetails", { tripId: item.id })}
-              />
-            )}
-          />
-        )}
-      </View>
-    </Screen>
-  );
-}
 export function TripDetailsScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "TripDetails">) {
   const { locale, messages } = useMessages(), ui = useUi();
   const query = useQuery({ queryKey: ["passenger-trip", route.params.tripId], queryFn: () => passengerServicesApi.trip(route.params.tripId) });

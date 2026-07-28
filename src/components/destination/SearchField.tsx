@@ -1,7 +1,9 @@
 /**
- * SearchField — large premium search input used by the destination sheet.
- * White background, gold search icon, soft shadow, large rounded corners.
- * RTL-safe: relies on writingDirection + row-reverse handled by RN's I18nManager.
+ * SearchField — the Heetch-style search input of the destination sheet.
+ *
+ * NOT a capsule: small corner radius, comfortable height, light shadow.
+ * Colours come from the inverted `Surfaces` set, so the field is charcoal on a
+ * light map and off-white on a dark map.
  */
 import React, { forwardRef } from "react"
 import {
@@ -19,30 +21,51 @@ import {
 	radius,
 	shadows,
 	spacing,
-	touchTarget,
 	typography,
+	type Surfaces,
 } from "../../design/theme"
 import { SearchIcon } from "../icons/Icons"
 
 export type SearchFieldProps = Omit<TextInputProps, "style"> & {
+	surfaces: Surfaces
 	/** When provided the field renders as a button (collapsed state). */
 	onPress?: () => void
 	/** Read-only presentation for the collapsed state. */
 	readOnly?: boolean
 	placeholder?: string
+	/** Optional trailing node (clear button, spinner...). */
+	trailing?: React.ReactNode
 }
 
+const FIELD_HEIGHT = 52
+
 const SearchField = forwardRef<TextInput, SearchFieldProps>(
-	({ onPress, readOnly = false, placeholder, value, ...inputProps }, ref) => {
+	(
+		{
+			surfaces,
+			onPress,
+			readOnly = false,
+			placeholder,
+			value,
+			trailing,
+			...inputProps
+		},
+		ref,
+	) => {
 		const content = (
-			<View style={styles.field}>
+			<View
+				style={[
+					styles.field,
+					{ backgroundColor: surfaces.field, borderColor: surfaces.divider },
+				]}
+			>
 				<SearchIcon size={iconSize.md} color={colors.gold} />
 				{readOnly ? (
 					<Text
 						style={[
 							styles.input,
 							styles.readOnlyText,
-							!value && styles.placeholder,
+							{ color: value ? surfaces.text : surfaces.textMuted },
 						]}
 						numberOfLines={1}
 					>
@@ -51,15 +74,16 @@ const SearchField = forwardRef<TextInput, SearchFieldProps>(
 				) : (
 					<TextInput
 						ref={ref}
-						style={styles.input}
+						style={[styles.input, { color: surfaces.text }]}
 						placeholder={placeholder}
-						placeholderTextColor={colors.textSecondary}
+						placeholderTextColor={surfaces.textMuted}
 						value={value}
 						returnKeyType="search"
 						autoCorrect={false}
 						{...inputProps}
 					/>
 				)}
+				{trailing}
 			</View>
 		)
 
@@ -82,33 +106,27 @@ SearchField.displayName = "SearchField"
 
 const styles = StyleSheet.create({
 	field: {
-		minHeight: touchTarget,
-		backgroundColor: colors.white,
-		borderRadius: radius.lg,
-		paddingHorizontal: spacing.lg,
+		height: FIELD_HEIGHT,
+		borderRadius: radius.md,
+		borderWidth: StyleSheet.hairlineWidth,
+		paddingHorizontal: spacing.md,
 		flexDirection: I18nManager.isRTL ? "row-reverse" : "row",
 		alignItems: "center",
-		gap: spacing.md,
+		gap: spacing.sm,
 		...shadows.soft,
 	},
 	input: {
 		flex: 1,
-		...typography.body,
-		fontSize: 17,
-		color: colors.textPrimary,
+		...typography.subtitle,
+		paddingVertical: 0,
 		textAlign: I18nManager.isRTL ? "right" : "left",
 		writingDirection: I18nManager.isRTL ? "rtl" : "ltr",
-		paddingVertical: spacing.md,
 	},
 	readOnlyText: {
 		paddingVertical: 0,
 	},
-	placeholder: {
-		color: colors.textSecondary,
-	},
 	pressed: {
-		backgroundColor: colors.pressed,
-		borderRadius: radius.lg,
+		opacity: 0.75,
 	},
 })
 
