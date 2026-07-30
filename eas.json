@@ -9,9 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
-        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
-        "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM"
+        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api"
       }
     },
     "preview": {
@@ -19,8 +17,6 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
-        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
-        "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM",
         "EAS_PROJECT_ID": "ac734c75-f867-4cb8-9884-41eeb9072eb4",
         "FLAMINGO_REQUIRE_NATIVE_CONFIG": "1"
       },
@@ -33,9 +29,7 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
-        "FLAMINGO_REQUIRE_NATIVE_CONFIG": "1",
-        "GOOGLE_MAPS_ANDROID_API_KEY": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0",
-        "GOOGLE_MAPS_IOS_API_KEY": "AIzaSyClS03ocWouyRtxBegf_SbDTiOJOoXybkM"
+        "FLAMINGO_REQUIRE_NATIVE_CONFIG": "1"
       },
       "android": {
         "buildType": "app-bundle"

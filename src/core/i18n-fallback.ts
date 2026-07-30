@@ -19,6 +19,10 @@ const AR: Record<string, string> = {
   "common.enabled": "مفعّل",
   "common.error": "حدث خطأ، يرجى المحاولة مرة أخرى",
   "common.retry": "إعادة المحاولة",
+  "appError.title": "تعذر تشغيل التطبيق",
+  "appError.body": "حدث خطأ غير متوقع. يمكنك المحاولة مجدداً أو إعادة تشغيل التطبيق.",
+  "appError.retry": "إعادة المحاولة",
+  "appError.restart": "إعادة تشغيل التطبيق",
   // connectivity
   "net.offline.title": "لا يوجد اتصال بالإنترنت",
   "net.offline.body": "سنعيد المحاولة تلقائياً عند عودة الشبكة",
@@ -412,6 +416,10 @@ const FR: Record<string, string> = {
   "common.enabled": "Activé",
   "common.error": "Une erreur s'est produite, réessayez",
   "common.retry": "Réessayer",
+  "appError.title": "Impossible de démarrer l’application",
+  "appError.body": "Une erreur inattendue s’est produite. Réessayez ou redémarrez l’application.",
+  "appError.retry": "Réessayer",
+  "appError.restart": "Redémarrer l’application",
   // connectivity
   "net.offline.title": "Pas de connexion Internet",
   "net.offline.body": "Nous réessaierons automatiquement dès le retour du réseau",
@@ -788,6 +796,10 @@ const EN: Record<string, string> = {
   "common.enabled": "Enabled",
   "common.error": "Something went wrong, please try again",
   "common.retry": "Retry",
+  "appError.title": "The app could not start",
+  "appError.body": "An unexpected error occurred. Try again or restart the app.",
+  "appError.retry": "Try again",
+  "appError.restart": "Restart app",
   // connectivity
   "net.offline.title": "No internet connection",
   "net.offline.body": "We will retry automatically once the network is back",
