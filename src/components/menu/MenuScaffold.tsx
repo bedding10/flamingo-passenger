@@ -38,6 +38,8 @@ import {
 } from "../../design/theme"
 import { ChevronIcon } from "../icons/Icons"
 import { useTheme } from "../../core/theme-store"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 
 /** Resolves the surface set used by every drawer page. */
 export function useMenuSurfaces(): Surfaces {
@@ -61,6 +63,7 @@ export const MenuScaffold: React.FC<MenuScaffoldProps> = ({
 	children,
 }) => {
 	const insets = useSafeAreaInsets()
+	const { messages } = useMessages()
 	const { palette } = useTheme()
 	const surfaces = useMenuSurfaces()
 
@@ -71,7 +74,7 @@ export const MenuScaffold: React.FC<MenuScaffoldProps> = ({
 					onPress={onBack}
 					hitSlop={14}
 					accessibilityRole="button"
-					accessibilityLabel="رجوع"
+					accessibilityLabel={tr(messages, "common.back")}
 					style={({ pressed }) => [styles.back, pressed && styles.dimmed]}
 				>
 					<ChevronIcon

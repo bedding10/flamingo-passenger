@@ -57,6 +57,8 @@ import {
 	StarIcon,
 	SunIcon,
 } from "../icons/Icons"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 
 export type DrawerMenuKey =
 	| "account"
@@ -76,12 +78,12 @@ const MENU_ORDER: DrawerMenuKey[] = [
 	"help",
 ]
 
-const DEFAULT_LABELS: Record<DrawerMenuKey, string> = {
-	account: "حسابي",
-	wallet: "محفظتي",
-	trips: "رحلاتي",
-	coupons: "كوبوناتي",
-	help: "مساعدة",
+const LABEL_KEYS: Record<DrawerMenuKey, string> = {
+	account: "drawer.account",
+	wallet: "drawer.wallet",
+	trips: "drawer.trips",
+	coupons: "drawer.coupons",
+	help: "drawer.help",
 }
 
 const FLAGS: Array<{ locale: DrawerLocale; flag: string }> = [
@@ -129,15 +131,22 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 	onChangeLocale,
 	onToggleTheme,
 	labels,
-	tripWord = "رحلة",
+	tripWord,
 }) => {
 	const { width } = useWindowDimensions()
+	const { messages } = useMessages()
 	const insets = useSafeAreaInsets()
 	const drawerWidth = Math.round(Math.min(width * 0.82, 340))
 	const rtl = I18nManager.isRTL
 	const hiddenOffset = rtl ? drawerWidth : -drawerWidth
 	const surfaces = useMemo(() => surfacesFor(mapTheme), [mapTheme])
-	const menu = useMemo(() => ({ ...DEFAULT_LABELS, ...labels }), [labels])
+	const menu = useMemo(
+		() => Object.fromEntries(
+			MENU_ORDER.map((key) => [key, labels?.[key] ?? tr(messages, LABEL_KEYS[key])]),
+		) as Record<DrawerMenuKey, string>,
+		[labels, messages],
+	)
+	const resolvedTripWord = tripWord ?? tr(messages, "trips.singular")
 
 	/** 0 = closed, 1 = fully open. Drives the slide and the backdrop together. */
 	const progress = useSharedValue(0)
@@ -198,7 +207,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 
 	const initial = userName?.trim()?.charAt(0)?.toUpperCase() || "F"
 	const nameLine =
-		tripCount != null ? `${userName} (${tripCount} ${tripWord})` : userName
+		tripCount != null ? `${userName} (${tripCount} ${resolvedTripWord})` : userName
 
 	return (
 		<View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -207,7 +216,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 					style={StyleSheet.absoluteFill}
 					onPress={close}
 					accessibilityRole="button"
-					accessibilityLabel="إغلاق القائمة"
+					accessibilityLabel={tr(messages, "drawer.closeMenu")}
 				/>
 			</Animated.View>
 
@@ -230,7 +239,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 						onPress={close}
 						hitSlop={16}
 						accessibilityRole="button"
-						accessibilityLabel="إغلاق"
+						accessibilityLabel={tr(messages, "common.close")}
 						style={({ pressed }) => [
 							styles.close,
 							pressed && styles.dimmed,
@@ -269,7 +278,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 									onPress={onChangeAvatar}
 									hitSlop={10}
 									accessibilityRole="button"
-									accessibilityLabel="تغيير الصورة"
+									accessibilityLabel={tr(messages, "drawer.changePhoto")}
 									style={({ pressed }) => [
 										styles.avatarButton,
 										{ borderColor: surfaces.field },
@@ -351,7 +360,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 						<Pressable
 							onPress={onToggleTheme}
 							accessibilityRole="button"
-							accessibilityLabel="تغيير الثيم"
+							accessibilityLabel={tr(messages, "drawer.changeTheme")}
 							style={({ pressed }) => [
 								styles.themeButton,
 								{
@@ -367,7 +376,7 @@ const SideDrawer: React.FC<SideDrawerProps> = ({
 								<SunIcon size={iconSize.sm} color={colors.gold} />
 							)}
 							<Text style={[styles.themeLabel, { color: surfaces.text }]}>
-								{mapTheme === "light" ? "Dark" : "Light"}
+								{tr(messages, mapTheme === "light" ? "theme.dark" : "theme.light")}
 							</Text>
 						</Pressable>
 					</View>

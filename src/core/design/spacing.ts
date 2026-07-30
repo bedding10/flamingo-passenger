@@ -9,6 +9,10 @@ export const SPACING = {
   xl: 20,
   xxl: 28,
   xxxl: 40,
+  // Compatibility names used by the original component tree.
+  "2xl": 24,
+  "3xl": 32,
+  "4xl": 40,
 } as const;
 
 export type SpacingToken = keyof typeof SPACING;

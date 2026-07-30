@@ -45,7 +45,7 @@ export function TripCommunicationScreen({
   const context = useQuery({
     queryKey: ["trip-communication", tripId],
     queryFn: () => passengerServicesApi.tripCommunication(tripId),
-    refetchInterval: (query) => (query.state.data?.active ? 10000 : false),
+    refetchInterval: (query) => (query.state.data?.active ? 30000 : false),
   });
   const chat = useQuery({
     queryKey: ["trip-messages", tripId],
@@ -53,7 +53,7 @@ export function TripCommunicationScreen({
     enabled: !!context.data,
     // The socket delivers messages instantly; this slow poll is only a
     // safety net for a dropped connection.
-    refetchInterval: context.data?.canChat ? 15000 : false,
+    refetchInterval: context.data?.canChat ? 45000 : false,
   });
   const send = useMutation({
     mutationFn: (text: string) =>

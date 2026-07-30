@@ -12,6 +12,8 @@
 import React, { useEffect, useRef, useState, type ComponentType } from "react"
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native"
 import { useTheme } from "../../core/theme-store"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 import { colors, radius, spacing, typography } from "../../design/theme"
 
 type ScanResult = { data: string }
@@ -32,6 +34,7 @@ export const WalletScanner: React.FC<{
 	onScanned: (value: string) => void
 }> = ({ onScanned }) => {
 	const { palette } = useTheme()
+	const { messages } = useMessages()
 	const [camera, setCamera] = useState<CameraModule | null>(null)
 	const [granted, setGranted] = useState<boolean | null>(null)
 	const handled = useRef(false)
@@ -66,7 +69,7 @@ export const WalletScanner: React.FC<{
 		return (
 			<View style={styles.center}>
 				<Text style={[styles.hint, { color: palette.textMuted }]}>
-					نحتاج إذن الكاميرا لمسح رمز محفظة المستخدم الآخر.
+					{tr(messages, "wallet.cameraPermission")}
 				</Text>
 			</View>
 		)
@@ -76,9 +79,9 @@ export const WalletScanner: React.FC<{
 
 	return (
 		<View style={styles.root}>
-			<Text style={[styles.title, { color: palette.text }]}>إرسال رصيد</Text>
+			<Text style={[styles.title, { color: palette.text }]}>{tr(messages, "wallet.sendBalance")}</Text>
 			<Text style={[styles.hint, { color: palette.textMuted }]}>
-				وجّه الكاميرا نحو رمز QR الخاص بالمستخدم الآخر.
+				{tr(messages, "wallet.scanHint")}
 			</Text>
 
 			<View style={styles.frame}>

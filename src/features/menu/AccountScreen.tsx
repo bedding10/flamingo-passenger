@@ -1,14 +1,7 @@
 /**
- * حسابي — Account page (drawer item 1).
- *
- * Name + avatar are saved through the EXISTING endpoint
- * `passengerServicesApi.updateProfile` (PATCH /passenger/me). No new logic, no
- * new endpoint, no new payload field.
- *
- * Phone number and password are rendered because the product asks for them,
- * but they are verification-bound (Firebase phone auth) and the current backend
- * exposes no mutation for either, so they stay read-only instead of calling an
- * endpoint that does not exist.
+ * Passenger account and security settings.
+ * Profile mutations use PATCH /passenger/me; password changes use the
+ * authenticated POST /auth/password/change contract.
  */
 import React, { useCallback, useMemo, useState } from "react"
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native"
@@ -19,7 +12,6 @@ import { useSession } from "../../core/session-store"
 import type { RootStackParamList } from "../../navigation/types"
 import {
 	Card,
-	GhostAction,
 	LabeledInput,
 	MenuScaffold,
 	PrimaryAction,
@@ -33,6 +25,7 @@ import { pickImageFromLibrary } from "./media"
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">
 
 const AVATAR = 92
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/
 
 export function AccountScreen({ navigation }: Props) {
 	const profile = useSession((state) => state.profile)
@@ -44,6 +37,10 @@ export function AccountScreen({ navigation }: Props) {
 	)
 	const [saved, setSaved] = useState(false)
 	const [error, setError] = useState<string | null>(null)
+	const [currentPassword, setCurrentPassword] = useState("")
+	const [newPassword, setNewPassword] = useState("")
+	const [confirmPassword, setConfirmPassword] = useState("")
+	const [passwordError, setPasswordError] = useState<string | null>(null)
 
 	const initial = useMemo(
 		() => (name.trim().charAt(0) || "F").toUpperCase(),
@@ -54,6 +51,12 @@ export function AccountScreen({ navigation }: Props) {
 		name.trim().length > 1 &&
 		(name.trim() !== (profile?.name ?? "") ||
 			(avatarUrl ?? null) !== (profile?.avatarUrl ?? null))
+
+	const passwordReady =
+		currentPassword.length >= 6 &&
+		PASSWORD_RULE.test(newPassword) &&
+		newPassword === confirmPassword &&
+		newPassword !== currentPassword
 
 	const save = useMutation({
 		mutationFn: () =>
@@ -72,6 +75,30 @@ export function AccountScreen({ navigation }: Props) {
 		},
 	})
 
+	const passwordChange = useMutation({
+		mutationFn: () =>
+			passengerServicesApi.changePassword(
+				currentPassword,
+				newPassword,
+				true,
+			),
+		onSuccess: () => {
+			setCurrentPassword("")
+			setNewPassword("")
+			setConfirmPassword("")
+			setPasswordError(null)
+			Alert.alert(
+				"تم تغيير كلمة المرور",
+				"تم إنهاء الجلسات الأخرى لحماية حسابك.",
+			)
+		},
+		onError: () => {
+			setPasswordError(
+				"تعذر تغيير كلمة المرور. تحقق من كلمة المرور الحالية وحاول مجدداً.",
+			)
+		},
+	})
+
 	const changeAvatar = useCallback(async () => {
 		const uri = await pickImageFromLibrary()
 		if (!uri) return
@@ -82,7 +109,7 @@ export function AccountScreen({ navigation }: Props) {
 	return (
 		<MenuScaffold
 			title="حسابي"
-			subtitle="عدّل بياناتك الشخصية"
+			subtitle="عدّل بياناتك الشخصية وأمان الحساب"
 			onBack={() => navigation.goBack()}
 		>
 			<Card centered>
@@ -127,37 +154,67 @@ export function AccountScreen({ navigation }: Props) {
 				placeholder="—"
 			/>
 
-			<SectionLabel>الأمان</SectionLabel>
-			<Card>
-				<Text style={styles.note}>
-					تغيير رقم الهاتف أو كلمة المرور يتطلّب إعادة التحقق من الهوية.
-				</Text>
-				<GhostAction
-					label="طلب تغيير رقم الهاتف / كلمة المرور"
-					onPress={() =>
-						Alert.alert(
-							"إعادة التحقق مطلوبة",
-							"أرسل لنا الطلب من صفحة المساعدة وسنعالجه.",
-							[
-								{ text: "إلغاء", style: "cancel" },
-								{
-									text: "فتح المساعدة",
-									onPress: () => navigation.navigate("Support"),
-								},
-							],
-						)
-					}
-				/>
-			</Card>
-
 			{error ? <StatusMessage danger>{error}</StatusMessage> : null}
 			{saved ? <StatusMessage>تم حفظ التغييرات</StatusMessage> : null}
 
 			<PrimaryAction
-				label="حفظ"
+				label="حفظ الملف الشخصي"
 				onPress={() => save.mutate()}
 				disabled={!dirty}
 				loading={save.isPending}
+			/>
+
+			<SectionLabel>تغيير كلمة المرور</SectionLabel>
+			<Card>
+				<Text style={styles.note}>
+					استخدم ثمانية أحرف على الأقل تتضمن حرفاً كبيراً وصغيراً ورقماً.
+				</Text>
+			</Card>
+			<LabeledInput
+				label="كلمة المرور الحالية"
+				value={currentPassword}
+				onChangeText={(value) => {
+					setCurrentPassword(value)
+					setPasswordError(null)
+				}}
+				secureTextEntry
+				textContentType="password"
+				autoCapitalize="none"
+			/>
+			<LabeledInput
+				label="كلمة المرور الجديدة"
+				value={newPassword}
+				onChangeText={(value) => {
+					setNewPassword(value)
+					setPasswordError(null)
+				}}
+				secureTextEntry
+				textContentType="newPassword"
+				autoCapitalize="none"
+			/>
+			<LabeledInput
+				label="تأكيد كلمة المرور الجديدة"
+				value={confirmPassword}
+				onChangeText={(value) => {
+					setConfirmPassword(value)
+					setPasswordError(null)
+				}}
+				secureTextEntry
+				textContentType="newPassword"
+				autoCapitalize="none"
+				returnKeyType="done"
+			/>
+			{confirmPassword && newPassword !== confirmPassword ? (
+				<StatusMessage danger>كلمتا المرور غير متطابقتين</StatusMessage>
+			) : null}
+			{passwordError ? (
+				<StatusMessage danger>{passwordError}</StatusMessage>
+			) : null}
+			<PrimaryAction
+				label="تغيير كلمة المرور"
+				onPress={() => passwordChange.mutate()}
+				disabled={!passwordReady}
+				loading={passwordChange.isPending}
 			/>
 		</MenuScaffold>
 	)

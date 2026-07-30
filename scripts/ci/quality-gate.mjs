@@ -42,15 +42,25 @@ if (!existsSync(join(root, "package-lock.json"))) fail("deterministic lockfile",
   const same = JSON.stringify(sort(locked.dependencies)) === JSON.stringify(sort(pkg.dependencies)) && JSON.stringify(sort(locked.devDependencies)) === JSON.stringify(sort(pkg.devDependencies));
   same ? pass("lockfile matches package") : fail("lockfile matches package", "root dependency sets differ");
 }
-const expected = { expo: "~52.0.47", react: "18.3.1", "react-native": "0.76.9", "expo-three": "8.0.0", three: "0.166.1", "@react-native-firebase/app": "21.12.3" };
+const expected = { expo: "~52.0.47", react: "18.3.1", "react-native": "0.76.9", "@react-native-firebase/app": "21.12.3" };
 const incompatible = Object.entries(expected).filter(([name, version]) => pkg.dependencies?.[name] !== version);
 incompatible.length ? fail("pinned Expo dependency matrix", incompatible) : pass("pinned Expo dependency matrix");
 const plugins = json("app.json").expo.plugins ?? [];
 const pluginNames = plugins.map((value) => Array.isArray(value) ? value[0] : value);
 const forbiddenPlugins = ["@react-native-firebase/auth", "@react-native-firebase/messaging", "@react-native-firebase/perf"].filter((name) => pluginNames.includes(name));
 forbiddenPlugins.length ? fail("valid Firebase Expo plugins", forbiddenPlugins) : pass("valid Firebase Expo plugins");
-const bundledVehicles = files.filter((path) => path.includes(`${join(root, "assets")}`) && /vehicle-.*\.(?:png|jpe?g|webp)$/i.test(path));
-bundledVehicles.length ? fail("no bundled vehicle images", bundledVehicles.map((path) => relative(root, path))) : pass("no bundled vehicle images");
+const heavyVehicleAssets = files.filter((path) =>
+  path.includes(`${join(root, "assets")}`) &&
+  /vehicle-.*\.(?:png|jpe?g)$/i.test(path),
+);
+const oversizedFallbacks = files.filter((path) =>
+  path.includes(`${join(root, "assets")}`) &&
+  /vehicle-.*\.webp$/i.test(path) &&
+  statSync(path).size > 10_000,
+);
+heavyVehicleAssets.length || oversizedFallbacks.length
+  ? fail("only tiny WebP vehicle fallbacks", [...heavyVehicleAssets, ...oversizedFallbacks].map((path) => relative(root, path)))
+  : pass("only tiny WebP vehicle fallbacks");
 for (const file of ["google-services.json", "GoogleService-Info.plist", "eas.json", "app.config.js", "metro.config.js"]) existsSync(join(root, file)) ? pass(`${file} exists`) : fail(`${file} exists`, "missing");
 console.log(JSON.stringify({ passed: passes, failed: failures }, null, 2));
 if (failures.length) process.exit(1);

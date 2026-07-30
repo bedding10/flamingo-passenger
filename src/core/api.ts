@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { clearTokens, saveTokens, tokens } from "./storage";
+import { markOffline, markOnline } from "./connectivity";
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL;
 if (!baseURL) throw new Error("EXPO_PUBLIC_API_URL is required");
@@ -47,8 +48,17 @@ async function refreshAccessToken() {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Every successful round trip is proof the radio works. This is the whole
+    // online detector: no native connectivity module is shipped for a fact the
+    // app already establishes on its own traffic.
+    markOnline();
+    return response;
+  },
   async (error: AxiosError) => {
+    // No `response` means the request never reached the server.
+    if (error.response) markOnline();
+    else markOffline();
     const config = error.config as RetryConfig | undefined;
     if (
       error.response?.status !== 401 ||

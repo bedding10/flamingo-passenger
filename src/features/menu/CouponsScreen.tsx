@@ -11,6 +11,8 @@ import { StyleSheet, Text } from "react-native"
 import { useMutation } from "@tanstack/react-query"
 import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { passengerServicesApi } from "../../core/passenger-api"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 import { useTheme } from "../../core/theme-store"
 import type { RootStackParamList } from "../../navigation/types"
 import {
@@ -21,7 +23,7 @@ import {
 	StatusMessage,
 } from "../../components/menu/MenuScaffold"
 import { TicketIcon } from "../../components/icons/Icons"
-import { iconSize, spacing, typography } from "../../design/theme"
+import { colors, iconSize, spacing, typography } from "../../design/theme"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Coupons">
 
@@ -33,6 +35,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Coupons">
 const NO_FARE = 0
 
 export function CouponsScreen({ navigation }: Props) {
+	const { messages } = useMessages()
 	const { palette } = useTheme()
 	const [code, setCode] = useState("")
 
@@ -45,19 +48,18 @@ export function CouponsScreen({ navigation }: Props) {
 
 	return (
 		<MenuScaffold
-			title="كوبوناتي"
-			subtitle="فعّل كود الخصم الخاص بك"
+			title={tr(messages, "coupons.title")}
+			subtitle={tr(messages, "coupons.subtitle")}
 			onBack={() => navigation.goBack()}
 		>
 			<Card>
 				<Text style={[styles.blurb, { color: palette.textMuted }]}>
-					أدخل كود الكوبون ثم اضغط تفعيل، وسيُطبّق الخصم تلقائياً على رحلتك
-					القادمة.
+					{tr(messages, "coupons.blurb")}
 				</Text>
 			</Card>
 
 			<LabeledInput
-				label="كود الكوبون"
+				label={tr(messages, "coupons.code")}
 				value={code}
 				onChangeText={(text) => {
 					setCode(text)
@@ -71,24 +73,24 @@ export function CouponsScreen({ navigation }: Props) {
 			/>
 
 			<PrimaryAction
-				label="تفعيل"
+				label={tr(messages, "coupons.activate")}
 				onPress={() => activate.mutate()}
 				disabled={code.trim().length < 3}
 				loading={activate.isPending}
-				leading={<TicketIcon size={iconSize.md} color="#111111" />}
+				leading={<TicketIcon size={iconSize.md} color={colors.black} />}
 			/>
 
 			{activate.isError ? (
-				<StatusMessage danger>تعذر التحقق من الكود، حاول مجدداً</StatusMessage>
+				<StatusMessage danger>{tr(messages, "coupons.error")}</StatusMessage>
 			) : null}
 
 			{result ? (
 				result.valid ? (
 					<StatusMessage>
-						{`تم تفعيل الكوبون — خصم ${result.discount} ${result.currency ?? "DZD"}`}
+						{`${tr(messages, "coupons.success")} ${result.discount} ${result.currency ?? "DZD"}`}
 					</StatusMessage>
 				) : (
-					<StatusMessage danger>الكود غير صالح أو منتهٍ</StatusMessage>
+					<StatusMessage danger>{tr(messages, "coupons.expired")}</StatusMessage>
 				)
 			) : null}
 		</MenuScaffold>

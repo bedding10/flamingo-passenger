@@ -26,10 +26,7 @@ export {
 export type { MapPinState, MapPinBaseProps } from "./map/MapPinBase"
 export { default as PinSpeechBubble } from "./map/PinSpeechBubble"
 
-export {
-	default as DestinationSheet,
-	defaultCopyAr,
-} from "./destination/DestinationSheet"
+export { default as DestinationSheet } from "./destination/DestinationSheet"
 export type {
 	DestinationSheetProps,
 	DestinationSheetCopy,

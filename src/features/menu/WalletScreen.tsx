@@ -16,6 +16,8 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQuery } from "@tanstack/react-query"
 import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { passengerServicesApi } from "../../core/passenger-api"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 import { useSession } from "../../core/session-store"
 import { useTheme } from "../../core/theme-store"
 import type { RootStackParamList } from "../../navigation/types"
@@ -42,6 +44,7 @@ import { WalletScanner } from "./WalletScanner"
 type Props = NativeStackScreenProps<RootStackParamList, "Wallet">
 
 export function WalletScreen({ navigation }: Props) {
+	const { locale, messages } = useMessages()
 	const { palette } = useTheme()
 	const profile = useSession((state) => state.profile)
 	const [mode, setMode] = useState<"none" | "receive" | "send">("none")
@@ -60,38 +63,37 @@ export function WalletScreen({ navigation }: Props) {
 
 	return (
 		<MenuScaffold
-			title="محفظتي"
-			subtitle="رصيدك داخل flaminGO"
+			title={tr(messages, "wallet.title")}
+			subtitle={tr(messages, "wallet.subtitle")}
 			onBack={() => navigation.goBack()}
 			loading={wallet.isLoading}
 		>
 			<Card>
 				<Text style={[styles.blurb, { color: palette.textMuted }]}>
-					محفظة flaminGO تتيح لك دفع ثمن رحلاتك مباشرة دون نقد، واستقبال
-					الرصيد وإرساله عبر رمز QR.
+					{tr(messages, "wallet.blurb")}
 				</Text>
 				<Text style={[styles.balanceLabel, { color: palette.textMuted }]}>
-					الرصيد الحالي
+					{tr(messages, "wallet.current")}
 				</Text>
 				<Text style={styles.balance}>
-					{Number(balance).toLocaleString("fr-DZ")}{" "}
+					{Number(balance).toLocaleString(locale)}{" "}
 					<Text style={styles.currency}>{currency}</Text>
 				</Text>
 				{wallet.data?.lockedBalance ? (
 					<InfoRow
-						title="محجوز مؤقتاً"
+						title={tr(messages, "wallet.temporaryLocked")}
 						value={`${wallet.data.lockedBalance} ${currency}`}
 					/>
 				) : null}
 			</Card>
 
 			<PrimaryAction
-				label="شحن المحفظة"
+				label={tr(messages, "wallet.topUp")}
 				onPress={() => setMode("receive")}
 				leading={<QrIcon size={iconSize.md} color={colors.black} />}
 			/>
 			<GhostAction
-				label="إرسال رصيد"
+				label={tr(messages, "wallet.sendBalance")}
 				onPress={() => {
 					setScanned(null)
 					setMode("send")
@@ -100,18 +102,18 @@ export function WalletScreen({ navigation }: Props) {
 			/>
 
 			{scanned ? (
-				<StatusMessage>{`تم مسح محفظة: ${scanned}`}</StatusMessage>
+				<StatusMessage>{`${tr(messages, "wallet.scanned")} ${scanned}`}</StatusMessage>
 			) : null}
 
 			{wallet.data?.transactions?.length ? (
 				<>
-					<SectionLabel>آخر العمليات</SectionLabel>
+					<SectionLabel>{tr(messages, "wallet.recent")}</SectionLabel>
 					<Card>
 						{wallet.data.transactions.slice(0, 8).map((item) => (
 							<InfoRow
 								key={item.id}
-								title={item.transaction?.reason ?? item.transaction?.type ?? "عملية"}
-								subtitle={new Date(item.createdAt).toLocaleString("fr-DZ")}
+								title={item.transaction?.reason ?? item.transaction?.type ?? tr(messages, "common.operation")}
+								subtitle={new Date(item.createdAt).toLocaleString(locale)}
 								value={`${item.amount} ${currency}`}
 							/>
 						))}
@@ -131,7 +133,7 @@ export function WalletScreen({ navigation }: Props) {
 						onPress={close}
 						hitSlop={16}
 						accessibilityRole="button"
-						accessibilityLabel="إغلاق"
+						accessibilityLabel={tr(messages, "common.close")}
 						style={styles.modalClose}
 					>
 						<CloseIcon size={iconSize.lg} color={colors.gold} />

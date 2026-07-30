@@ -60,6 +60,7 @@ export function AuthScreen() {
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const accept = useSession((state) => state.accept);
+  const expired = useSession((state) => state.expired);
 
   // Every auth action is async and network-bound. guard() disables the UI while
   // running and surfaces failures as a visible, logged error instead of a
@@ -80,6 +81,12 @@ export function AuthScreen() {
   useEffect(() => {
     void hydrate();
   }, [locale, hydrate]);
+
+  // Being bounced to the login screen by an expired refresh token used to be
+  // completely silent. Reuse the existing error slot to say what happened.
+  useEffect(() => {
+    if (expired) setError(tr(messages, "session.expired.body"));
+  }, [expired, messages]);
 
   useEffect(() => {
     void syncManagedAssets().catch(() => undefined);

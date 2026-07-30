@@ -25,3 +25,15 @@ export async function clearTokens() {
     SecureStore.deleteItemAsync(R),
   ]);
 }
+export async function saveSecureJson(key: string, value: unknown) {
+  await SecureStore.setItemAsync(key, JSON.stringify(value), secureOptions);
+}
+export async function readSecureJson<T>(key: string): Promise<T | null> {
+  const raw = await SecureStore.getItemAsync(key);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as T; }
+  catch { await SecureStore.deleteItemAsync(key); return null; }
+}
+export async function deleteSecureItems(...keys: string[]) {
+  await Promise.all(keys.map((key) => SecureStore.deleteItemAsync(key)));
+}

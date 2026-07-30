@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Application from "expo-application";
 import { api } from "./api";
+import { idempotencyHeaders } from "./idempotency";
 import type { Locale, PlaceSuggestion, Profile, Trip } from "./contracts";
 
 export type Page<T> = { items: T[]; total: number; page: number; limit: number };
@@ -29,6 +30,7 @@ export const passengerServicesApi = {
   config: async () => (await api.get<PassengerConfig>("/public/config", { params: { appId: "flamingo-passenger", clientOs: Platform.OS, version: Application.nativeApplicationVersion ?? undefined } })).data,
   profile: async () => (await api.get<Profile>("/passenger/me")).data,
   updateProfile: async (payload: Partial<Pick<Profile, "name" | "avatarUrl" | "locale" | "gender">>) => (await api.patch<Profile>("/passenger/me", payload)).data,
+  changePassword: async (currentPassword: string, newPassword: string, revokeOtherSessions = true) => (await api.post<{ ok: true; otherSessionsRevoked: boolean }>("/auth/password/change", { currentPassword, newPassword, revokeOtherSessions })).data,
   trips: async (pageNumber = 1) => (await api.get<Page<Trip>>("/rides/mine", { params: { ...page, page: pageNumber } })).data,
   trip: async (tripId: string) => (await api.get<Trip>(`/rides/${encodeURIComponent(tripId)}`)).data,
   places: async () => (await api.get<SavedPlace[]>("/geo/places")).data,
@@ -67,7 +69,12 @@ export const passengerServicesApi = {
     (await api.post("/support/complaints", { tripId, message, againstUserId })).data,
   paymentMethods: async () => (await api.get<PassengerPaymentMethod[]>("/passenger/payments/methods")).data,
   tripPayment: async (tripId: string) => (await api.get<PassengerPayment | null>(`/passenger/payments/trip/${encodeURIComponent(tripId)}`)).data,
-  checkoutTrip: async (tripId: string, method: PassengerPaymentMethod["method"]) => (await api.post<PassengerCheckout>(`/passenger/payments/trip/${encodeURIComponent(tripId)}/checkout`, { method })).data,
+  checkoutTrip: async (tripId: string, method: PassengerPaymentMethod["method"], idempotencyKey: string) =>
+    (await api.post<PassengerCheckout>(
+      `/passenger/payments/trip/${encodeURIComponent(tripId)}/checkout`,
+      { method },
+      idempotencyHeaders(idempotencyKey),
+    )).data,
   tripCommunication: async (tripId: string) => (await api.get<TripCommunication>(`/trip-communication/${encodeURIComponent(tripId)}`)).data,
   tripMessages: async (tripId: string, pageNumber = 1) => (await api.get<Page<TripMessage>>(`/trip-communication/${encodeURIComponent(tripId)}/messages`, { params: { ...page, page: pageNumber } })).data,
   sendTripMessage: async (tripId: string, body: string) => (await api.post<TripMessage>(`/trip-communication/${encodeURIComponent(tripId)}/messages`, { body })).data,

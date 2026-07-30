@@ -10,6 +10,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useSession } from "../core/session-store";
 import { useTheme } from "../core/theme-store";
 import { BootScreen } from "../components/BootScreen";
+import { ConnectionBanner } from "../components/ConnectionBanner";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { HomeScreen } from "../features/home/HomeScreen";
@@ -61,7 +62,9 @@ const SubscriptionsScreen = lazyScreen(() => finance().then((m) => m.Subscriptio
 const NotificationsScreen = lazyScreen(() =>
   import("../features/services/NotificationsScreen").then((m) => m.NotificationsScreen),
 );
-import { AccountScreen } from "../features/menu/AccountScreen";
+const AccountScreen = lazyScreen(() =>
+  import("../features/menu/AccountScreen").then((m) => m.AccountScreen),
+);
 const SupportScreen = lazyScreen(() =>
   import("../features/menu/HelpScreen").then((m) => m.HelpScreen),
 );
@@ -145,6 +148,10 @@ export function RootNavigator() {
               </>
             )}
           </Stack.Navigator>
+          {/* Mounted inside the container but outside the stack so the
+              offline / reconnecting notice is visible on EVERY screen and
+              survives navigation. */}
+          <ConnectionBanner />
         </NavigationContainer>
       )}
     </>

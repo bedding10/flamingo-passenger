@@ -18,6 +18,7 @@ import { registerNotifications } from "./core/notifications";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { useBrandFonts } from "./core/fonts";
 import { enableDynamicType } from "./core/text-scale";
+import { shouldRetry } from "./core/api-error";
 
 // The OS font-size setting must work everywhere, capped so pills and map cards
 // never clip. Applied at module scope: before any screen renders.
@@ -34,7 +35,11 @@ const client = new QueryClient({
       // session. 15 minutes keeps back-navigation instant while letting
       // entry-level devices reclaim memory.
       gcTime: 900_000,
-      retry: 2,
+      // A blanket `retry: 2` fired three requests at every 400/401/404 the
+      // user could never satisfy. Only transient failures (5xx, 429, network)
+      // are retried now, so a rejected request surfaces immediately and the
+      // radio is not woken twice for nothing.
+      retry: shouldRetry,
       refetchOnWindowFocus: false,
     },
   },

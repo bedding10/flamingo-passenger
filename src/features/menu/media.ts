@@ -9,6 +9,7 @@
 // URI (today it is passed to the existing PATCH /passenger/me endpoint).
 // ---------------------------------------------------------------------------
 import { Alert } from "react-native"
+import { tr } from "../../core/i18n"
 
 type ImagePickerModule = {
   requestMediaLibraryPermissionsAsync: () => Promise<{ granted: boolean }>
@@ -23,20 +24,22 @@ type ImagePickerModule = {
  * Opens the system gallery and returns the local URI of the picked image,
  * or null when the user cancels or denies the permission.
  */
-export async function pickImageFromLibrary(): Promise<string | null> {
+export async function pickImageFromLibrary(
+  messages: Record<string, string> = {},
+): Promise<string | null> {
   let picker: ImagePickerModule
   try {
     picker = (await import("expo-image-picker")) as unknown as ImagePickerModule
   } catch {
-    Alert.alert("الصورة", "لا يمكن فتح معرض الصور على هذا الجهاز.")
+    Alert.alert(tr(messages, "media.imageTitle"), tr(messages, "media.galleryUnavailable"))
     return null
   }
 
   const permission = await picker.requestMediaLibraryPermissionsAsync()
   if (!permission.granted) {
     Alert.alert(
-      "الإذن مطلوب",
-      "يرجى السماح بالوصول إلى الصور لتغيير صورة الحساب.",
+      tr(messages, "media.permissionTitle"),
+      tr(messages, "media.permissionBody"),
     )
     return null
   }

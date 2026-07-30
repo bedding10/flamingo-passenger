@@ -34,16 +34,3 @@ export function enableDynamicType(): void {
 export function fontScale(): number {
   return Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, PixelRatio.getFontScale()));
 }
-
-/**
- * Scales a fixed pixel height (button, row, avatar) with the font scale so
- * larger text never gets clipped. Widths stay untouched.
- */
-export function scaleHeight(height: number): number {
-  return Math.round(height * Math.min(1.2, fontScale()));
-}
-
-/** True when the user reads at a noticeably larger size than the default. */
-export function isLargeText(): boolean {
-  return PixelRatio.getFontScale() > 1.15;
-}

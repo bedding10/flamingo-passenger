@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Image,
   Pressable,
@@ -14,18 +15,15 @@ import MapView, { AnimatedRegion, LatLng, Marker, Polyline, type Region } from "
 import * as Location from "expo-location";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Animated, {
-  Easing,
   FadeIn,
   FadeOut,
   SlideInDown,
   SlideOutDown,
   useAnimatedStyle,
   useSharedValue,
-  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import type {
-  FareOffer,
   PlaceSuggestion,
   Point,
   Quote,
@@ -45,11 +43,17 @@ import {
 import { RADIUS, SHADOW, SPACING, TYPE } from "../../core/design";
 import { PressScale } from "../../components/PressScale";
 import { GoldButton } from "../../components/GoldButton";
-import { PriceStepper } from "../../components/PriceStepper";
-import { a11yButton, a11yImage, a11yValue, announce } from "../../core/a11y";
+import { a11yButton, a11yImage, a11yValue } from "../../core/a11y";
 import { nextMode, useTheme } from "../../core/theme-store";
-import { connectTrip, type TripEvent } from "../trip/realtime";
+import {
+  connectTrip,
+  type TripEvent,
+  type TripSignal,
+} from "../trip/realtime";
 import { passengerApi } from "../trip/trip-api";
+import { RouteComet } from "./RouteComet";
+import { NegotiationPanel } from "./NegotiationPanel";
+import { TripPanel } from "./TripPanel";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/types";
 import { passengerServicesApi, type PassengerPaymentMethod } from "../../core/passenger-api";
@@ -199,6 +203,13 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   const hasDriverCoordinate = useRef(false);
 
   const [locationDenied, setLocationDenied] = useState(false);
+  // Terminal outcome of the matching search, fed by the socket lifecycle.
+  // Until now `ride:no_drivers` and `ride:error` were never consumed, so a
+  // failed search left the passenger staring at an eternal "searching" pulse.
+  const [matchFailure, setMatchFailure] = useState<{
+    kind: "noDrivers" | "error";
+    code?: string;
+  } | null>(null);
   // Asking for the location is retryable: the illustration screen calls this
   // again when the passenger taps "allow", so a first refusal is not final.
   const requestLocation = useCallback(async () => {
@@ -266,7 +277,9 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     queryKey: ["trip", trip?.id],
     queryFn: () => passengerApi.getRide(trip!.id),
     enabled: !!trip?.id && ACTIVE.has(trip.status),
-    refetchInterval: trip?.id && ACTIVE.has(trip.status) ? 8000 : false,
+    // The socket pushes trip:status the moment it changes; this poll is only
+    // a safety net for a dropped connection, so it can run far slower.
+    refetchInterval: trip?.id && ACTIVE.has(trip.status) ? 20000 : false,
   });
   const route = useQuery({
     queryKey: ["route", pickup, destination],
@@ -314,7 +327,28 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         );
       } else setTrip((old) => (old ? ({ ...old, ...event } as Trip) : old));
     };
-    void connectTrip(trip.id, update)
+    const signal = (event: TripSignal) => {
+      switch (event.type) {
+        case "searching":
+          // A new search round started: clear any previous failure.
+          setMatchFailure(null);
+          break;
+        case "accepted":
+        case "assigned":
+          setMatchFailure(null);
+          break;
+        case "noDrivers":
+          setMatchFailure({ kind: "noDrivers" });
+          break;
+        case "error":
+          setMatchFailure({ kind: "error", code: event.code });
+          break;
+        default:
+          // Offer signals are consumed by the negotiation panel.
+          break;
+      }
+    };
+    void connectTrip(trip.id, update, signal)
       .then((close) => {
         if (disposed) close();
         else dispose = close;
@@ -490,6 +524,37 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       resetRide();
     },
   });
+  // Cancelling used to fire on the first tap with no confirmation, so a
+  // mis-tap during a ride cancelled it outright - and a cancellation fee can
+  // apply once the driver is on the way. Every major ride-hailing app confirms.
+  const confirmCancel = useCallback(() => {
+    Alert.alert(
+      tr(messages, "home.cancelConfirm.title"),
+      tr(messages, "home.cancelConfirm.body"),
+      [
+        { text: tr(messages, "common.back"), style: "cancel" },
+        {
+          text: tr(messages, "home.cancelRide"),
+          style: "destructive",
+          onPress: () => cancelMutation.mutate(),
+        },
+      ],
+    );
+  }, [cancelMutation, messages]);
+  // "No driver found" must be recoverable without retyping the trip. Cancels
+  // the exhausted ride server-side, then re-sends the SAME request with the
+  // route and vehicle the passenger already chose. Existing endpoints only.
+  const retryMatchMutation = useMutation({
+    mutationFn: async () => {
+      const previous = trip;
+      setMatchFailure(null);
+      setTrip(null);
+      if (previous) {
+        await passengerApi.cancelRide(previous.id).catch(() => undefined);
+      }
+      await requestMutation.mutateAsync();
+    },
+  });
   const startNegotiation = async () => {
     if (!pickup || !destination || !selected) return;
     const value = await passengerApi.createNegotiation(
@@ -511,6 +576,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   };
   const resetRide = () => {
     setTrip(null);
+    setMatchFailure(null);
     setNegotiation(null);
     setSelected(null);
     setQuote(null);
@@ -529,29 +595,9 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
 
   const mapStyle = useMemo(() => mapStyleFor(palette.mapStyle), [palette.mapStyle]);
 
-  // Travelling light: a short slice of the route advances from the pickup to
-  // the destination, redrawn only while a route is on screen. Cheap (one small
-  // slice of an already cached array) and it never touches the map itself.
-  const [routeTick, setRouteTick] = useState(0);
-  const routeLength = route.data?.length ?? 0;
-  useEffect(() => {
-    if (!routeLength) return;
-    setRouteTick(0);
-    const timer = setInterval(
-      () => setRouteTick((value) => (value + 1) % ROUTE_STEPS),
-      90,
-    );
-    return () => clearInterval(timer);
-  }, [routeLength]);
-  const comet = useMemo(() => {
-    const points = route.data ?? [];
-    if (points.length < 2) return [];
-    const span = Math.max(2, Math.round(points.length * 0.16));
-    const head = Math.round((routeTick / ROUTE_STEPS) * (points.length + span));
-    const start = Math.max(0, head - span);
-    const end = Math.min(points.length, head);
-    return end - start > 1 ? points.slice(start, end) : [];
-  }, [route.data, routeTick]);
+  // Travelling light: the animated slice now lives inside <RouteComet/>, a
+  // leaf component. Its 90ms tick used to re-render this whole screen about
+  // eleven times a second; it is now scoped to two polylines.
 
   // Back button: leaving the app takes two consecutive presses.
   const [exitHint, setExitHint] = useState(false);
@@ -747,24 +793,12 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
               lineCap="round"
               lineJoin="round"
             />
-            {comet.length > 1 ? (
-              <>
-                <Polyline
-                  coordinates={comet}
-                  strokeColor={withAlpha(palette.accent, 0.35)}
-                  strokeWidth={13}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-                <Polyline
-                  coordinates={comet}
-                  strokeColor={withAlpha(palette.routeGlow, 0.9)}
-                  strokeWidth={4}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-              </>
-            ) : null}
+            <RouteComet
+              points={route.data}
+              accent={palette.accent}
+              glow={palette.routeGlow}
+              paused={pinDragging}
+            />
           </>
         ) : null}
       </MapView>
@@ -847,7 +881,17 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             closeSearch();
           }}
           onSnapChange={(index) => setSheetOpen(index > 0)}
-          copy={{ title: tr(messages, "home.whereTo") }}
+          copy={{
+            title: tr(messages, "destination.title"),
+            searchPlaceholder: tr(messages, "destination.search"),
+            pickupPlaceholder: tr(messages, "destination.pickup"),
+            destinationPlaceholder: tr(messages, "destination.dropoff"),
+            currentLocation: tr(messages, "destination.current"),
+            setOnMap: tr(messages, "destination.setOnMap"),
+            favorites: tr(messages, "destination.favorites"),
+            recent: tr(messages, "destination.recent"),
+            noResults: tr(messages, "destination.noResults"),
+          }}
         />
       ) : null}
 
@@ -1137,7 +1181,10 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           messages={messages}
           payment={payment}
           cancelPending={cancelMutation.isPending}
-          onCancel={() => cancelMutation.mutate()}
+          onCancel={confirmCancel}
+          failure={matchFailure}
+          retryPending={retryMatchMutation.isPending}
+          onRetry={() => retryMatchMutation.mutate()}
           onCommunicate={() => navigation.navigate("TripCommunication", { tripId: trip.id })}
           onClose={resetRide}
         />
@@ -1162,7 +1209,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           else navigation.navigate("Support");
         }}
         onChangeAvatar={() => {
-          void pickImageFromLibrary().then((uri) => {
+          void pickImageFromLibrary(messages).then((uri) => {
             if (!uri) return;
             return passengerServicesApi
               .updateProfile({ avatarUrl: uri })
@@ -1177,12 +1224,20 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
             .catch((error) => reportError(error, "drawer.locale"));
         }}
         onToggleTheme={() => setMode(nextMode(themeName))}
+        labels={{
+          account: tr(messages, "drawer.account"),
+          wallet: tr(messages, "drawer.wallet"),
+          trips: tr(messages, "drawer.trips"),
+          coupons: tr(messages, "drawer.coupons"),
+          help: tr(messages, "drawer.help"),
+        }}
+        tripWord={tr(messages, "trips.singular")}
       />
     </View>
   );
 }
 
-type Styles = ReturnType<typeof makeStyles>;
+export type Styles = ReturnType<typeof makeStyles>;
 
 // The class that can pick the passenger up first earns the gold badge. Pure
 // and cheap, so it can run inline while rendering the horizontal list.
@@ -1195,7 +1250,9 @@ function fastestVehicleId(vehicles: VehicleType[]): string | null {
   return best?.id ?? null;
 }
 
-function VehicleCard({
+
+
+function VehicleCardBase({
   styles,
   vehicle,
   locale,
@@ -1273,370 +1330,21 @@ function VehicleCard({
     </Pressable>
   );
 }
-// Accept button that visually drains as the offer expires: a solid fill
-// shrinks from full width to zero, and a clipped light label keeps the text
-// readable on both the filled and the empty part of the button.
-function AcceptButton({
-  styles,
-  label,
-  expiresAt,
-  onPress,
-}: {
-  styles: Styles;
-  label: string;
-  expiresAt?: string;
-  onPress: () => void;
-}) {
-  const [width, setWidth] = useState(0);
-  const progress = useSharedValue(1);
-  const [seconds, setSeconds] = useState<number | null>(null);
+// The card only depends on its own data: the parent rebuilds onPress on every
+// render, but that closure is stable in behaviour, so it is left out of the
+// comparison instead of being memoised at every call site.
+const VehicleCard = React.memo(
+  VehicleCardBase,
+  (prev, next) =>
+    prev.vehicle === next.vehicle &&
+    prev.selected === next.selected &&
+    prev.revision === next.revision &&
+    prev.badge === next.badge &&
+    prev.locale === next.locale &&
+    prev.messages === next.messages &&
+    prev.styles === next.styles,
+);
 
-  useEffect(() => {
-    if (!expiresAt) {
-      progress.value = 1;
-      setSeconds(null);
-      return;
-    }
-    const target = new Date(expiresAt).getTime();
-    const left = () => Math.max(0, target - Date.now());
-    const total = Math.max(1, left());
-    progress.value = 1;
-    progress.value = withTiming(0, { duration: total, easing: Easing.linear });
-    setSeconds(Math.ceil(total / 1000));
-    const timer = setInterval(
-      () => setSeconds(Math.ceil(left() / 1000)),
-      500,
-    );
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expiresAt]);
-
-  const fill = useAnimatedStyle(() => ({
-    width: width * progress.value,
-  }));
-  const text = seconds != null ? `${label}  ·  ${seconds}` : label;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-      style={styles.acceptButton}
-    >
-      {/* empty-state label (dark text on the drained track) */}
-      <Text style={styles.acceptTextIdle}>{text}</Text>
-      {/* draining fill + the same label clipped inside it */}
-      <Animated.View style={[styles.acceptFill, fill]}>
-        <View style={[styles.acceptFillInner, { width: width || undefined }]}>
-          <Text style={styles.acceptTextActive}>{text}</Text>
-        </View>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-// inDrive-style bargaining: the passenger names a price, adds an optional
-// message for drivers, and answers every driver offer with accept or dismiss.
-function NegotiationPanel({
-  styles,
-  messages,
-  proposed,
-  placeholderColor,
-  setProposed,
-  note,
-  setNote,
-  palette,
-  suggested,
-  offers,
-  onSend,
-  onAccept,
-  onDismiss,
-  onBack,
-}: {
-  styles: Styles;
-  messages: Record<string, string>;
-  proposed: string;
-  placeholderColor: string;
-  setProposed: (x: string) => void;
-  note: string;
-  setNote: (x: string) => void;
-  palette: Palette;
-  suggested?: number;
-  offers: FareOffer[];
-  onSend: () => void;
-  onAccept: (id: string) => void;
-  onDismiss: (id: string) => void;
-  onBack: () => void;
-}) {
-  const value = Number(proposed);
-  const canSend = Number.isFinite(value) && value > 0;
-  const offerCount = offers.length;
-  useEffect(() => {
-    if (offerCount > 0) {
-      announce(`${tr(messages, "home.driverOffers")}: ${offerCount}`);
-    }
-  }, [messages, offerCount]);
-  // Cheapest first, exactly like inDrive's offer list.
-  const sorted = [...offers].sort((a, b) => a.fare - b.fare);
-  return (
-    <Animated.View entering={FadeIn}>
-      <Text style={styles.sheetTitle}>
-        {tr(messages, "home.negotiationTitle")}
-      </Text>
-      <Text style={styles.muted}>{tr(messages, "home.negotiationHint")}</Text>
-
-      {/* price: drag the gold track, tap - / +, or type it directly */}
-      <PriceStepper
-        value={proposed}
-        onChange={setProposed}
-        suggested={suggested}
-        decreaseLabel={tr(messages, "home.priceDown")}
-        increaseLabel={tr(messages, "home.priceUp")}
-      />
-      {suggested != null ? (
-        <Text style={styles.muted}>
-          {`${tr(messages, "home.suggestedFare")}: ${suggested}`}
-        </Text>
-      ) : null}
-
-      {/* message shown to drivers with the price */}
-      <TextInput
-        value={note}
-        onChangeText={setNote}
-        placeholder={tr(messages, "home.messagePlaceholder")}
-        placeholderTextColor={placeholderColor}
-        multiline
-        maxLength={140}
-        style={styles.noteInput}
-      />
-
-      <View style={styles.ctaWrap}>
-        <GoldButton
-          label={tr(messages, "home.sendOffer")}
-          disabled={!canSend}
-          onPress={onSend}
-        />
-      </View>
-
-      <Text style={[styles.label, { marginTop: 16 }]}>
-        {`${tr(messages, "home.driverOffers")}${sorted.length ? ` (${sorted.length})` : ""}`}
-      </Text>
-      {sorted.length ? (
-        sorted.map((offer, index) => (
-          <View key={offer.id} style={styles.offerCard}>
-            <View style={styles.offerHead}>
-              <View style={styles.flex}>
-                <Text style={styles.vehicleName}>
-                  {offer.driver?.name ?? tr(messages, "home.driver")}
-                </Text>
-                {offer.driver?.rating != null ? (
-                  <Text style={styles.muted}>{`★ ${offer.driver.rating}`}</Text>
-                ) : null}
-              </View>
-              <View
-                style={styles.offerPriceBox}
-                {...a11yValue(tr(messages, "home.price"), offer.fare)}
-              >
-                <Text style={styles.price}>{offer.fare}</Text>
-                {index === 0 && sorted.length > 1 ? (
-                  <Text style={styles.bestBadge}>
-                    {tr(messages, "home.bestPrice")}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-            {offer.note ? (
-              <Text style={styles.offerNote}>{offer.note}</Text>
-            ) : null}
-            {offer.etaMinutes != null ? (
-              <Text style={styles.muted}>
-                {`${tr(messages, "home.etaMinutes")}: ${offer.etaMinutes}`}
-              </Text>
-            ) : null}
-            <View style={styles.offerActions}>
-              <AcceptButton
-                styles={styles}
-                label={tr(messages, "home.acceptOffer")}
-                expiresAt={offer.expiresAt}
-                onPress={() => onAccept(offer.id)}
-              />
-              <Pressable
-                {...a11yButton(tr(messages, "home.dismissOffer"), {
-                  hint: String(offer.fare),
-                })}
-                onPress={() => onDismiss(offer.id)}
-                style={styles.dismissButton}
-              >
-                <Text style={styles.dismissText}>
-                  {tr(messages, "home.dismissOffer")}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ))
-      ) : (
-        <Text style={styles.muted}>{tr(messages, "home.noOffers")}</Text>
-      )}
-      <Pressable onPress={onBack} style={styles.secondaryButton}>
-        <Text style={styles.buttonTextDark}>{tr(messages, "common.back")}</Text>
-      </Pressable>
-    </Animated.View>
-  );
-}
-function TripPanel({
-  styles,
-  palette,
-  trip,
-  messages,
-  payment,
-  cancelPending,
-  onCancel,
-  onCommunicate,
-  onClose,
-}: {
-  styles: Styles;
-  palette: Palette;
-  trip: Trip;
-  messages: Record<string, string>;
-  payment: string | null;
-  cancelPending: boolean;
-  onCancel: () => void;
-  onCommunicate: () => void;
-  onClose: () => void;
-}) {
-  const pulse = useSharedValue(0.55);
-  useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 1200 }), -1, true);
-  }, [pulse]);
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: pulse.value,
-    transform: [{ scale: 0.9 + pulse.value * 0.1 }],
-  }));
-  const completed = trip.status === "COMPLETED",
-    searching = trip.status === "SEARCHING";
-  const title = completed
-    ? "home.tripCompleted"
-    : trip.status === "IN_PROGRESS"
-      ? "home.tripInProgress"
-      : searching
-          ? "home.searching"
-          : "home.driverArriving";
-  return (
-    <Animated.View
-      entering={SlideInDown.springify().damping(20)}
-      style={styles.bottomSheet}
-    >
-      <View style={styles.handle} />
-      {searching ? <Animated.View style={[styles.pulse, pulseStyle]} /> : null}
-      <Text style={styles.sheetTitle}>{tr(messages, title)}</Text>
-      {searching ? (
-        <Text style={styles.muted}>{tr(messages, "home.searchingHint")}</Text>
-      ) : null}
-      {trip.driver ? (
-        <View style={styles.driverCard}>
-          <View style={styles.avatar}>
-            {trip.driver.avatarUrl ? (
-              <Image
-                source={{ uri: trip.driver.avatarUrl }}
-                style={styles.avatarImage}
-              />
-            ) : null}
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.vehicleName}>
-              {trip.driver.name ?? tr(messages, "home.driver")}
-            </Text>
-            {trip.driver.rating != null ? (
-              <Text style={styles.muted}>
-                {tr(messages, "home.rating")}: {trip.driver.rating}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
-      <View style={styles.details}>
-        <Detail
-          styles={styles}
-          label={tr(messages, "home.from")}
-          value={trip.pickupAddress}
-        />
-        <Detail
-          styles={styles}
-          label={tr(messages, "home.to")}
-          value={trip.destAddress}
-        />
-        {trip.vehicle ? (
-          <Detail
-            styles={styles}
-            label={tr(messages, "home.vehicle")}
-            value={[trip.vehicle.make, trip.vehicle.model, trip.vehicle.color]
-              .filter(Boolean)
-              .join(" ")}
-          />
-        ) : null}
-        {trip.vehicle?.plate ? (
-          <Detail
-            styles={styles}
-            label={tr(messages, "home.plate")}
-            value={trip.vehicle.plate}
-          />
-        ) : null}
-        <Detail
-          styles={styles}
-          label={tr(messages, "home.payment")}
-          value={payment ? tr(messages, `payment.method.${payment}`) : undefined}
-        />
-      </View>
-      {["ACCEPTED", "ARRIVING", "IN_PROGRESS"].includes(trip.status) ? (
-        <Pressable onPress={onCommunicate} style={styles.primaryButton}>
-          <Text style={styles.buttonTextLight}>{tr(messages, "communication.title")}</Text>
-        </Pressable>
-      ) : null}
-      {completed ? (
-        <Pressable onPress={onClose} style={styles.primaryButton}>
-          <Text style={styles.buttonTextLight}>
-            {tr(messages, "home.close")}
-          </Text>
-        </Pressable>
-      ) : (
-        <Pressable
-          disabled={cancelPending || trip.status === "IN_PROGRESS"}
-          onPress={onCancel}
-          style={[
-            styles.secondaryButton,
-            trip.status === "IN_PROGRESS" && styles.disabled,
-          ]}
-        >
-          {cancelPending ? (
-            <ActivityIndicator color={palette.text} />
-          ) : (
-            <Text style={styles.buttonTextDark}>
-              {tr(messages, "home.cancelRide")}
-            </Text>
-          )}
-        </Pressable>
-      )}
-    </Animated.View>
-  );
-}
-function Detail({
-  styles,
-  label,
-  value,
-}: {
-  styles: Styles;
-  label: string;
-  value?: string;
-}) {
-  if (!value) return null;
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.muted}>{label}</Text>
-      <Text numberOfLines={2} style={styles.detailValue}>
-        {value}
-      </Text>
-    </View>
-  );
-}
 
 // Every colour below comes from the active palette — no literal hex values.
 function makeStyles(palette: Palette, themeName: "light" | "dark") {

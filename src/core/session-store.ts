@@ -2,7 +2,10 @@ import axios from "axios";
 import { create } from "zustand";
 import type { Profile, Session } from "./contracts";
 import { api, onAuthenticationFailure } from "./api";
-import { cache, clearTokens, saveTokens, tokens } from "./storage";
+import {
+  clearTokens, deleteSecureItems, readSecureJson, saveSecureJson,
+  saveTokens, tokens,
+} from "./storage";
 import { unregisterNotifications } from "./notifications";
 
 const IDENTITY_KEY = "session.identity";
@@ -13,42 +16,43 @@ type State = {
   ready: boolean;
   session: Session | null;
   profile: Profile | null;
+  /**
+   * True when the refresh token was rejected and the user was signed out by
+   * the server rather than by choice. Without this flag the app silently
+   * dropped the user back on the login screen with no explanation, which reads
+   * as a crash. A deliberate logout leaves it false.
+   */
+  expired: boolean;
   restore: () => Promise<void>;
   accept: (session: Session) => Promise<void>;
   logout: () => Promise<void>;
 };
 
-function readCache<T>(key: string): T | null {
-  const raw = cache.getString(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    cache.delete(key);
-    return null;
-  }
+async function persist(identity: CachedIdentity, profile: Profile) {
+  await Promise.all([
+    saveSecureJson(IDENTITY_KEY, identity),
+    saveSecureJson(PROFILE_KEY, profile),
+  ]);
 }
-function persist(identity: CachedIdentity, profile: Profile) {
-  cache.set(IDENTITY_KEY, JSON.stringify(identity));
-  cache.set(PROFILE_KEY, JSON.stringify(profile));
-}
-function clearSessionCache() {
-  cache.delete(IDENTITY_KEY);
-  cache.delete(PROFILE_KEY);
+async function clearSessionCache() {
+  await deleteSecureItems(IDENTITY_KEY, PROFILE_KEY);
 }
 
 export const useSession = create<State>((set) => ({
   ready: false,
   session: null,
   profile: null,
+  expired: false,
   restore: async () => {
     const stored = await tokens();
     if (!stored.access || !stored.refresh) {
       set({ ready: true, session: null, profile: null });
       return;
     }
-    const identity = readCache<CachedIdentity>(IDENTITY_KEY);
-    const cachedProfile = readCache<Profile>(PROFILE_KEY);
+    const [identity, cachedProfile] = await Promise.all([
+      readSecureJson<CachedIdentity>(IDENTITY_KEY),
+      readSecureJson<Profile>(PROFILE_KEY),
+    ]);
     if (identity && cachedProfile) {
       set({
         session: {
@@ -60,17 +64,20 @@ export const useSession = create<State>((set) => ({
         ready: true,
       });
     }
+    if (!identity) {
+      await clearTokens();
+      set({ ready: true, session: null, profile: null });
+      return;
+    }
     try {
-      const [{ data: me }, { data: profile }] = await Promise.all([
-        api.post<CachedIdentity>("/auth/me"),
-        api.get<Profile>("/passenger/me"),
-      ]);
+      const { data: profile } = await api.get<Profile>("/passenger/me");
+      const refreshed = await tokens();
       const session: Session = {
-        ...me,
-        accessToken: (await tokens()).access ?? stored.access,
-        refreshToken: (await tokens()).refresh ?? stored.refresh,
+        ...identity,
+        accessToken: refreshed.access ?? stored.access,
+        refreshToken: refreshed.refresh ?? stored.refresh,
       };
-      persist(me, profile);
+      await persist(identity, profile);
       set({ session, profile, ready: true });
     } catch (error) {
       if (
@@ -89,11 +96,11 @@ export const useSession = create<State>((set) => ({
   accept: async (session) => {
     await saveTokens(session.accessToken, session.refreshToken);
     const { data: profile } = await api.get<Profile>("/passenger/me");
-    persist(
+    await persist(
       { userId: session.userId, role: session.role, user: session.user },
       profile,
     );
-    set({ session, profile, ready: true });
+    set({ session, profile, ready: true, expired: false });
   },
   logout: async () => {
     try {
@@ -101,13 +108,18 @@ export const useSession = create<State>((set) => ({
       await api.post("/auth/logout");
     } finally {
       await clearTokens();
-      clearSessionCache();
-      set({ session: null, profile: null, ready: true });
+      await clearSessionCache();
+      set({ session: null, profile: null, ready: true, expired: false });
     }
   },
 }));
 
 onAuthenticationFailure(async () => {
-  clearSessionCache();
-  useSession.setState({ session: null, profile: null, ready: true });
+  await Promise.all([clearTokens(), clearSessionCache()]);
+  useSession.setState({
+    session: null,
+    profile: null,
+    ready: true,
+    expired: true,
+  });
 });

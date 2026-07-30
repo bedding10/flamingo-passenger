@@ -1,16 +1,13 @@
 import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { FlashList } from "@shopify/flash-list";
 import Animated from "react-native-reanimated";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, Field, Loading, Message, PrimaryButton, Row, Screen, SecondaryButton, day, money, useUi } from "../../components/PassengerScreen";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi, type SavedPlace } from "../../core/passenger-api";
 import { useMessages } from "../../core/use-messages";
 import { EmptyState } from "../../components/EmptyState";
-import { TripHistoryCard } from "../../components/TripHistoryCard";
-import type { Trip } from "../../core/contracts";
 import type { RootStackParamList } from "../../navigation/types";
 
 export function TripDetailsScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, "TripDetails">) {

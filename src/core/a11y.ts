@@ -48,12 +48,3 @@ export function announce(message: string): void {
   if (!message) return;
   AccessibilityInfo.announceForAccessibility(message);
 }
-
-/** True when the user asked the OS to reduce motion; skip decorative loops. */
-export async function prefersReducedMotion(): Promise<boolean> {
-  try {
-    return await AccessibilityInfo.isReduceMotionEnabled();
-  } catch {
-    return false;
-  }
-}

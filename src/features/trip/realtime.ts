@@ -1,6 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { AppState, type AppStateStatus } from "react-native";
 import { tokens } from "../../core/storage";
+import { markSocket } from "../../core/connectivity";
 
 const base = process.env.EXPO_PUBLIC_API_URL;
 if (!base) throw Error("EXPO_PUBLIC_API_URL_REQUIRED");
@@ -27,6 +28,47 @@ export type TripChatMessage = {
 };
 
 // ---------------------------------------------------------------------------
+// Matching lifecycle signals.
+//
+// The backend has always emitted the full matching lifecycle, but the app only
+// subscribed to `trip:status`, `ride:assigned` and `driver:moved`. Everything
+// that tells the passenger the search FAILED - `ride:no_drivers`, `ride:error`,
+// `ride:offer_expired` - was dropped on the floor, which is why the UI could
+// sit on "searching for a driver" forever.
+//
+// These are delivered on a SEPARATE callback rather than merged into the trip
+// object, because they are not partial trips: spreading them into the trip
+// would corrupt its shape. No new event name is invented and no payload is
+// reshaped - this only consumes what the server already sends.
+// ---------------------------------------------------------------------------
+export type TripSignalType =
+  | "searching" // ride:searching       - matching started / still running
+  | "accepted" // ride:accepted        - a driver took the ride
+  | "assigned" // ride:assigned        - driver + vehicle attached
+  | "noDrivers" // ride:no_drivers      - search exhausted, terminal
+  | "error" // ride:error           - matching failed server-side
+  | "offer" // ride:offer           - a negotiation offer arrived
+  | "offerExpired"; // ride:offer_expired   - that offer timed out
+
+export type TripSignal = {
+  type: TripSignalType;
+  /** Business code when the server sends one, e.g. "CITY_CAPACITY_REJECTED". */
+  code?: string;
+  payload: TripEvent;
+};
+
+/** Wire event name -> signal type. Server contract, do not rename. */
+const SIGNAL_EVENTS: Record<string, TripSignalType> = {
+  "ride:searching": "searching",
+  "ride:accepted": "accepted",
+  "ride:assigned": "assigned",
+  "ride:no_drivers": "noDrivers",
+  "ride:error": "error",
+  "ride:offer": "offer",
+  "ride:offer_expired": "offerExpired",
+};
+
+// ---------------------------------------------------------------------------
 // One socket per trip, shared by every subscriber.
 //
 // Tracking (trip:status / ride:assigned / driver:moved) and chat (trip:message)
@@ -46,6 +88,9 @@ type TripChannel = {
 
 const channels = new Map<string, TripChannel>();
 
+/** True while at least one trip channel is open, so we only report real state. */
+const anyChannelOpen = () => channels.size > 0;
+
 function createChannel(tripId: string): TripChannel {
   const socket: Socket = io(ORIGIN, {
     transports: ["websocket"],
@@ -59,8 +104,26 @@ function createChannel(tripId: string): TripChannel {
     randomizationFactor: 0.35,
   });
 
+  markSocket("connecting");
+
   // Re-join on every (re)connect so a dropped link restores the room.
-  socket.on("connect", () => socket.emit("trip:join", { tripId }));
+  socket.on("connect", () => {
+    markSocket("connected");
+    socket.emit("trip:join", { tripId });
+  });
+
+  // Without these two listeners a dropped realtime link was completely silent:
+  // the map froze on the last known driver position and the passenger had no
+  // way to tell a stopped car from a dead socket.
+  socket.on("disconnect", () => {
+    if (anyChannelOpen()) markSocket("disconnected");
+  });
+  socket.io.on("reconnect_attempt", () => {
+    if (anyChannelOpen()) markSocket("connecting");
+  });
+  socket.on("connect_error", () => {
+    if (anyChannelOpen()) markSocket("disconnected");
+  });
 
   // Backgrounded apps must not hold an open socket: Android/iOS throttle the
   // JS timers anyway, and the reconnect loop keeps the radio awake. We close on
@@ -68,7 +131,10 @@ function createChannel(tripId: string): TripChannel {
   // clients do.
   const onAppState = (state: AppStateStatus) => {
     if (state === "active") {
-      if (!socket.connected) socket.connect();
+      if (!socket.connected) {
+        markSocket("connecting");
+        socket.connect();
+      }
     } else if (socket.connected) {
       socket.disconnect();
     }
@@ -104,8 +170,11 @@ function acquire(tripId: string): { socket: Socket; release: () => void } {
       if (current.refs > 0) return;
       current.detachAppState();
       current.socket.off();
+      current.socket.io.off("reconnect_attempt");
       current.socket.disconnect();
       channels.delete(tripId);
+      // No live trip left: the banner must not claim we are reconnecting.
+      if (!anyChannelOpen()) markSocket("idle");
     },
   };
 }
@@ -127,20 +196,44 @@ export async function connectTripChat(
 }
 
 /**
- * Live trip tracking: status transitions, driver assignment and driver movement.
+ * Live trip tracking.
+ *
+ * @param onUpdate Partial trip patches (status, driver assignment, movement).
+ * @param onSignal Matching-lifecycle signals. Optional so existing callers keep
+ *   working unchanged; screens that render "no driver found" pass it.
  */
 export async function connectTrip(
   tripId: string,
   onUpdate: (payload: TripEvent) => void,
+  onSignal?: (signal: TripSignal) => void,
 ) {
   const { socket, release } = acquire(tripId);
+
   socket.on("trip:status", onUpdate);
   socket.on("ride:assigned", onUpdate);
   socket.on("driver:moved", onUpdate);
+
+  // One bound listener per lifecycle event, kept in a list so teardown removes
+  // exactly what was added (socket.off(name) without a handler would also strip
+  // the listeners of any other subscriber sharing this channel).
+  const bound: Array<[string, (payload: TripEvent) => void]> = [];
+  if (onSignal) {
+    for (const [event, type] of Object.entries(SIGNAL_EVENTS)) {
+      const handler = (payload: TripEvent = {}) => {
+        const code =
+          typeof payload.code === "string" ? payload.code : undefined;
+        onSignal({ type, code, payload });
+      };
+      socket.on(event, handler);
+      bound.push([event, handler]);
+    }
+  }
+
   return () => {
     socket.off("trip:status", onUpdate);
     socket.off("ride:assigned", onUpdate);
     socket.off("driver:moved", onUpdate);
+    for (const [event, handler] of bound) socket.off(event, handler);
     release();
   };
 }

@@ -56,6 +56,8 @@ import {
 import PlaceRow from "./PlaceRow"
 import RouteRows, { type RouteTarget } from "./RouteRows"
 import SearchField from "./SearchField"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 
 export type PlaceKind = "recent" | "saved" | "favorite" | "suggestion"
 
@@ -77,18 +79,6 @@ export type DestinationSheetCopy = {
 	favorites: string
 	recent: string
 	noResults: string
-}
-
-export const defaultCopyAr: DestinationSheetCopy = {
-	title: "إلى أين تريد الذهاب؟",
-	searchPlaceholder: "ابحث عن مكان",
-	pickupPlaceholder: "موقعي الحالي",
-	destinationPlaceholder: "إلى أين؟",
-	currentLocation: "موقعي الحالي",
-	setOnMap: "تحديد على الخريطة",
-	favorites: "المفضلة",
-	recent: "الأماكن الأخيرة",
-	noResults: "لا توجد نتائج",
 }
 
 export type DestinationSheetHandle = {
@@ -164,13 +154,25 @@ const DestinationSheetInner: React.ForwardRefRenderFunction<
 	ref,
 ) => {
 	const sheetRef = useRef<BottomSheet>(null)
+	const { messages } = useMessages()
 	const inputRef = useRef<TextInput>(null)
 	const [index, setIndex] = useState(0)
 
 	const surfaces = useMemo(() => surfacesFor(mapTheme), [mapTheme])
-	const copy = useMemo(
-		() => ({ ...defaultCopyAr, ...copyOverride }),
-		[copyOverride],
+	const copy = useMemo<DestinationSheetCopy>(
+		() => ({
+			title: tr(messages, "destination.title"),
+			searchPlaceholder: tr(messages, "destination.search"),
+			pickupPlaceholder: tr(messages, "destination.pickup"),
+			destinationPlaceholder: tr(messages, "destination.dropoff"),
+			currentLocation: tr(messages, "destination.current"),
+			setOnMap: tr(messages, "destination.setOnMap"),
+			favorites: tr(messages, "destination.favorites"),
+			recent: tr(messages, "destination.recent"),
+			noResults: tr(messages, "destination.noResults"),
+			...copyOverride,
+		}),
+		[messages, copyOverride],
 	)
 
 	/**

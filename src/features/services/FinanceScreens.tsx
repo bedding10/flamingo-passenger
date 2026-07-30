@@ -6,9 +6,6 @@ import { Card, Field, Loading, Message, PrimaryButton, Row, Screen, SecondaryBut
 import { tr } from "../../core/i18n";
 import { passengerServicesApi } from "../../core/passenger-api";
 import { useMessages } from "../../core/use-messages";
-import { EmptyState } from "../../components/EmptyState";
-import { Illustration } from "../../components/Illustration";
-import { GoldButton } from "../../components/GoldButton";
 import type { RootStackParamList } from "../../navigation/types";
 const back = (navigation: { goBack: () => void }) => navigation.goBack;
 export function ReferralsScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Referrals">) { const { messages}= useMessages(), ui = useUi(); const [code,setCode]=useState(""); const client=useQueryClient(); const own=useQuery({queryKey:["referral-code"],queryFn:passengerServicesApi.referralCode}); const list=useQuery({queryKey:["referrals"],queryFn:passengerServicesApi.referrals}); const apply=useMutation({mutationFn:()=>passengerServicesApi.applyReferral(code.trim()),onSuccess:()=>client.invalidateQueries({queryKey:["referrals"]})}); return <Screen title={tr(messages,"referrals.title")} onBack={back(navigation)}>{own.isPending?<Loading/>:own.data?<Card><Text style={ui.heroValue}>{own.data.code}</Text><Text style={ui.heroLabel}>{tr(messages,"referrals.myCode")}</Text><SecondaryButton label={tr(messages,"referrals.share")} onPress={()=>void Share.share({message:own.data!.code})}/></Card>:null}<Field value={code} onChangeText={setCode} label={tr(messages,"referrals.enterCode")}/><PrimaryButton label={tr(messages,"referrals.apply")} disabled={code.trim().length<4||apply.isPending} onPress={()=>apply.mutate()}/>{apply.isError?<Message danger>{tr(messages,"common.error")}</Message>:null}<Text style={ui.section}>{tr(messages,"referrals.history")}</Text>{list.data?.items.map(x=><Card key={x.id}><Row title={x.code} value={tr(messages,`referrals.status.${x.status}`)}/></Card>)}</Screen>; }

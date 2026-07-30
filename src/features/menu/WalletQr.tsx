@@ -9,6 +9,8 @@
 import React, { useEffect, useState, type ComponentType } from "react"
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native"
 import { useTheme } from "../../core/theme-store"
+import { tr } from "../../core/i18n"
+import { useMessages } from "../../core/use-messages"
 import { colors, radius, spacing, typography } from "../../design/theme"
 
 type QrProps = {
@@ -23,6 +25,7 @@ export const WalletQr: React.FC<{ value: string; name?: string }> = ({
 	name,
 }) => {
 	const { palette } = useTheme()
+	const { messages } = useMessages()
 	const [Qr, setQr] = useState<ComponentType<QrProps> | null>(null)
 
 	useEffect(() => {
@@ -39,9 +42,9 @@ export const WalletQr: React.FC<{ value: string; name?: string }> = ({
 
 	return (
 		<View style={styles.root}>
-			<Text style={[styles.title, { color: palette.text }]}>شحن المحفظة</Text>
+			<Text style={[styles.title, { color: palette.text }]}>{tr(messages, "wallet.topUp")}</Text>
 			<Text style={[styles.hint, { color: palette.textMuted }]}>
-				اعرض هذا الرمز ليتم مسحه وإضافة الرصيد إلى محفظتك.
+				{tr(messages, "wallet.qrHint")}
 			</Text>
 
 			<View style={styles.frame}>
