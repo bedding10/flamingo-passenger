@@ -1,0 +1,65 @@
+# ---------------- Node ----------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# ---------------- Expo ----------------
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+
+# ---------------- Secrets & keys (never commit) ----------------
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+*.jks
+*.keystore
+# Only exception: the debug keystore used for local/debug builds
+!android/app/debug.keystore
+google-service-account*.json
+service-account*.json
+
+# ---------------- Android build outputs ----------------
+android/.gradle/
+android/build/
+android/app/build/
+android/.cxx/
+android/local.properties
+android/.idea/
+android/*.iml
+android/*.hprof
+*.apk
+*.aab
+*.jsbundle
+
+# ---------------- iOS ----------------
+ios/build/
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/DerivedData/
+
+# ---------------- Temp files & backups ----------------
+*.backup
+*.before-node20
+config.log
+ci-logs/
+expo-config-output.txt
+expo-config-error.txt
+PassengerApp.zip
+*.zip
+*.tsbuildinfo
+coverage/
+
+# ---------------- Editors & OS ----------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
