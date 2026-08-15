@@ -51,6 +51,7 @@ import {
 } from "../../design/theme"
 import { CloseIcon, MoonIcon, SunIcon } from "../icons/Icons"
 import StarRating from "../StarRating"
+import { ProfileAvatar } from "../ProfileAvatar"
 import { tr } from "../../core/i18n"
 import { useTextDirection } from "../../core/text-direction"
 import { useLatinType } from "../../core/typeface"
