@@ -1,0 +1,252 @@
+name: Android APK Build
+
+# 1) يدوياً من صفحة Actions   2) عند أي push على main
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "debug = يحتاج Metro | release = APK مستقل (يحتاج أسرار التوقيع)"
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+      architectures:
+        description: "معماريات ABI المطلوبة"
+        required: true
+        default: "arm64-v8a,armeabi-v7a"
+        type: string
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build flaminGO APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      # ---- متغيرات التطبيق الثلاثة (GitHub Secrets) ----
+      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      GOOGLE_MAPS_ANDROID_API_KEY: ${{ secrets.GOOGLE_MAPS_ANDROID_API_KEY }}
+      GOOGLE_MAPS_IOS_API_KEY: ${{ secrets.GOOGLE_MAPS_IOS_API_KEY }}
+      # ---- أسرار توقيع release كما يقرأها android/app/build.gradle عبر System.getenv ----
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # ANDROID_KEYSTORE_PATH يُضبط ديناميكياً في خطوة "Decode release keystore"
+      CI: "true"
+      EXPO_NO_TELEMETRY: "1"
+      GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+    steps:
+      # ---------- 1. جلب الكود ----------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------- 2. تحديد نوع البناء ----------
+      - name: Resolve build variant
+        id: cfg
+        run: |
+          VARIANT="${{ github.event.inputs.variant || 'debug' }}"
+          ARCHS="${{ github.event.inputs.architectures || 'arm64-v8a,armeabi-v7a' }}"
+          if [ "$VARIANT" = "release" ]; then
+            echo "task=assembleRelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "task=assembleDebug"   >> "$GITHUB_OUTPUT"
+          fi
+          echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
+          echo "archs=$ARCHS"     >> "$GITHUB_OUTPUT"
+          echo "### البناء: \`$VARIANT\` | ABIs: \`$ARCHS\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- 3. Node.js 20.18.1 ----------
+      - name: Setup Node.js 20.18.1
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.18.1
+          cache: npm
+
+      # ---------- 4. Java JDK 17 (يطابق Gradle 8.10.2) ----------
+      - name: Setup Java JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ---------- 5. Android SDK + NDK ----------
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages
+        run: |
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" \
+            "cmake;3.22.1" \
+            "ndk;26.1.10909125"
+
+      # ---------- 6. كاش Gradle ----------
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # ---------- 7. التحقق من الأسرار المطلوبة ----------
+      - name: Validate required secrets
+        run: |
+          MISSING=0
+          for V in EXPO_PUBLIC_API_URL GOOGLE_MAPS_ANDROID_API_KEY; do
+            if [ -z "${!V}" ]; then
+              echo "::error::السر المطلوب غير مضبوط: $V"
+              MISSING=1
+            fi
+          done
+          if [ -z "$GOOGLE_MAPS_IOS_API_KEY" ]; then
+            echo "::warning::GOOGLE_MAPS_IOS_API_KEY غير مضبوط (غير مطلوب لبناء أندرويد)"
+          fi
+          [ "$MISSING" = "0" ] || exit 1
+
+      # ---------- 8. توليد .env من الأسرار ----------
+      # Expo يقرأ .env تلقائياً، وكل EXPO_PUBLIC_* يُحقن في حزمة JS وقت الـ bundling.
+      - name: Generate .env from secrets
+        run: |
+          {
+            printf 'EXPO_PUBLIC_API_URL=%s\n' "$EXPO_PUBLIC_API_URL"
+            printf 'GOOGLE_MAPS_ANDROID_API_KEY=%s\n' "$GOOGLE_MAPS_ANDROID_API_KEY"
+            printf 'GOOGLE_MAPS_IOS_API_KEY=%s\n' "$GOOGLE_MAPS_IOS_API_KEY"
+          } > .env
+          echo "تم إنشاء .env (عدد الأسطر: $(wc -l < .env)) - القيم لا تُطبع في السجل"
+
+      # ---------- 9. تفكيك keystore التوقيع (لـ release فقط) ----------
+      # android/app/build.gradle يقرأ:
+      #   ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+      # وإذا نقص أي منها يصبح hasReleaseSigning = false.
+      - name: Decode release keystore
+        if: steps.cfg.outputs.variant == 'release'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 غير موجود - hasReleaseSigning سيكون false ولن يُوقّع الـ APK بمفتاح الإنتاج"
+            exit 0
+          fi
+          KS="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS"
+          if [ ! -s "$KS" ]; then
+            echo "::error::فشل فك ترميز base64 للـ keystore"
+            exit 1
+          fi
+          chmod 600 "$KS"
+          echo "ANDROID_KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
+          echo "تم تجهيز keystore بحجم $(stat -c%s "$KS") bytes"
+
+      - name: Report signing mode
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_PATH" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] \
+             && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "hasReleaseSigning = true (توقيع إنتاج مفعّل)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "hasReleaseSigning = false (بناء دون مفتاح إنتاج)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # ---------- 10. تثبيت الحزم ----------
+      - name: Install npm dependencies
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      # ---------- 11. حقن مفتاح خرائط جوجل في AndroidManifest ----------
+      # مجلد android مبني مسبقاً، لذلك gradlew لا يمر على app.config.js
+      # ويجب استبدال قيمة المفتاح داخل الـ manifest من السر.
+      - name: Inject Google Maps key into AndroidManifest
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/AndroidManifest.xml";
+            const key = process.env.GOOGLE_MAPS_ANDROID_API_KEY;
+            if (!key) { console.log("no key, skipping"); process.exit(0); }
+            let s = fs.readFileSync(p, "utf8");
+            const re = /(android:name="com\.google\.android\.geo\.API_KEY"\s+android:value=")[^"]*(")/;
+            if (!re.test(s)) { console.error("::error::meta-data com.google.android.geo.API_KEY not found"); process.exit(1); }
+            fs.writeFileSync(p, s.replace(re, `$1${key}$2`));
+            console.log("Google Maps key injected into AndroidManifest.xml");
+          '
+
+      # ---------- 12. بناء الـ APK ----------
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build APK (${{ steps.cfg.outputs.variant }})
+        working-directory: android
+        run: |
+          ./gradlew ${{ steps.cfg.outputs.task }} \
+            --no-daemon \
+            --stacktrace \
+            --max-workers=4 \
+            -PreactNativeArchitectures=${{ steps.cfg.outputs.archs }} \
+            -Dorg.gradle.jvmargs="-Xmx5g -XX:MaxMetaspaceSize=1g"
+
+      # ---------- 13. جمع الـ APK والتحقق من توقيعه ----------
+      - name: Collect and verify APK
+        id: apk
+        run: |
+          mkdir -p artifacts
+          FOUND=$(find android/app/build/outputs/apk -name "*.apk" -type f | sort)
+          if [ -z "$FOUND" ]; then
+            echo "::error::لم يتم إنتاج أي ملف APK"
+            exit 1
+          fi
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          i=0
+          for f in $FOUND; do
+            i=$((i+1))
+            OUT="artifacts/flaminGO-${{ steps.cfg.outputs.variant }}-${SHORT_SHA}-$i.apk"
+            cp "$f" "$OUT"
+            echo "- \`$(basename "$OUT")\` ($(du -h "$OUT" | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$APKSIGNER" ]; then
+              if "$APKSIGNER" verify --print-certs "$OUT" > /tmp/sig.txt 2>&1; then
+                echo "  - التوقيع: OK - $(grep -m1 'Signer #1 certificate DN' /tmp/sig.txt || true)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "  - التوقيع: غير موقع أو توقيع غير صالح (لن يُثبّت على الهاتف)" >> "$GITHUB_STEP_SUMMARY"
+                echo "::warning::الـ APK غير موقع: $OUT"
+              fi
+            fi
+          done
+          ls -lh artifacts
+          echo "name=flaminGO-${{ steps.cfg.outputs.variant }}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      # ---------- 14. رفع الـ APK كـ artifact قابل للتحميل ----------
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: artifacts/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # ---------- 15. عند الفشل: ارفع تقارير Gradle ----------
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-reports-${{ github.run_id }}
+          path: |
+            android/app/build/reports/**
+            android/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # ---------- 16. تنظيف الأسرار من قرص الـ runner ----------
+      - name: Cleanup secrets from disk
+        if: always()
+        run: |
+          rm -f .env
+          rm -f "$RUNNER_TEMP/release.keystore"
