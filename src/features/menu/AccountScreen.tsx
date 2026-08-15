@@ -36,6 +36,7 @@ import {
 import { colors, iconSize, radius, spacing, typography } from "../../design/theme"
 import { pickImageFromLibrary } from "./media"
 import { isLocalUri, uploadAvatar } from "../../core/avatar-upload"
+import { ProfileAvatar } from "../../components/ProfileAvatar"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">
 
