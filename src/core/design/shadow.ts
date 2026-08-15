@@ -1,8 +1,9 @@
 import type { ViewStyle } from "react-native";
+import { colors } from "../../design/theme";
 
 // Soft elevation tokens. Shadow colour is intentionally neutral black in both
 // themes: on dark surfaces it reads as depth, on light surfaces as a soft lift.
-const SHADOW_TINT = "#000000";
+const SHADOW_TINT = colors.ink;
 
 export const SHADOW = {
   card: {

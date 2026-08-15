@@ -2,14 +2,19 @@ import React from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { PressScale } from "./PressScale";
-import { RADIUS, SHADOW, TYPE } from "../core/design";
+import { SHADOW } from "../core/design";
+import { colors, radius, typography } from "../design/theme";
 import { useTheme } from "../core/theme-store";
 import { withAlpha } from "../core/theme";
+import { useLatinType } from "../core/typeface";
 
 /**
- * The signature flaminGO action button: a large gold gradient pill with a soft
- * glow, press scaling and an inline loading state. Used for the single most
- * important action of a screen (request a ride, confirm, pay).
+ * The signature flaminGO action button: a FULL PILL in brand gold with black
+ * label, a soft glow, press scaling and an inline loading state. Used for the
+ * single most important action of a screen (find a driver, confirm, pay).
+ *
+ * The pill radius is non-negotiable: every primary CTA in the app is
+ * `radius.pill`.
  */
 function GoldButtonBase({
   label,
@@ -23,6 +28,7 @@ function GoldButtonBase({
   loading?: boolean;
 }) {
   const { palette } = useTheme();
+  const type = useLatinType();
   const blocked = disabled || loading;
   return (
     <PressScale
@@ -47,14 +53,14 @@ function GoldButtonBase({
         style={styles.gradient}
       >
         {loading ? (
-          <ActivityIndicator color={palette.onAccent} />
+          <ActivityIndicator color={colors.ink} />
         ) : (
-          <Text style={[styles.label, { color: palette.onAccent }]}>{label}</Text>
+          <Text style={[type("title"), styles.label]}>{label}</Text>
         )}
       </LinearGradient>
       <View
         pointerEvents="none"
-        style={[styles.sheen, { backgroundColor: withAlpha(palette.onAccent, 0.16) }]}
+        style={[styles.sheen, { backgroundColor: withAlpha(colors.white, 0.16) }]}
       />
     </PressScale>
   );
@@ -63,7 +69,8 @@ function GoldButtonBase({
 const styles = StyleSheet.create({
   wrap: {
     minHeight: 62,
-    borderRadius: RADIUS.xl,
+    /* Always a full pill. Never a rounded rectangle. */
+    borderRadius: radius.pill,
     overflow: "hidden",
   },
   blocked: { opacity: 0.45 },
@@ -73,7 +80,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 22,
   },
-  label: { ...TYPE.bodyStrong, fontSize: 17, fontWeight: "800" },
+  /* Black label on gold: the highest-contrast pairing the palette allows. */
+  label: { ...typography.title, fontWeight: "800", color: colors.ink },
   sheen: {
     position: "absolute",
     top: 0,

@@ -9,6 +9,7 @@ import Animated, {
 import { connectionNotice, useConnectivity } from "../core/connectivity";
 import { useMessages } from "../core/use-messages";
 import { tr } from "../core/i18n";
+import { colors } from "../design/theme";
 import { useTheme } from "../core/theme-store";
 
 // ---------------------------------------------------------------------------
@@ -65,14 +66,14 @@ export function ConnectionBanner() {
         <View
           style={[
             styles.dot,
-            { backgroundColor: offline ? "#FFFFFF" : palette.accent },
+            { backgroundColor: offline ? colors.white : palette.accent },
           ]}
         />
         <Text
           numberOfLines={1}
           style={[
             styles.title,
-            { color: offline ? "#FFFFFF" : palette.text },
+            { color: offline ? colors.white : palette.text },
           ]}
         >
           {title}

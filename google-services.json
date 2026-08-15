@@ -8,6 +8,48 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:863994471927:android:342a92ee13e7dda42d3af2",
+        "android_client_info": {
+          "package_name": "com.flamingo.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCspDmSvj3uKXtHjms629Za_-020QKJMKs"
+        },
+        {
+          "current_key": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0"
+        },
+        {
+          "current_key": "AIzaSyAdhhYNx8LRb8OJ1PsngTTObs3xcaF2gyg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "863994471927-8g48232n9v7vfofo6rashk9f96alvbr9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "863994471927-h9io8ard1n432rvk00idql8bgd7nk84s.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.flamingo.passenger"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:863994471927:android:03de3f6491dc91092d3af2",
         "android_client_info": {
           "package_name": "com.novaride.driver"
@@ -29,7 +71,13 @@
       ],
       "api_key": [
         {
+          "current_key": "AIzaSyCspDmSvj3uKXtHjms629Za_-020QKJMKs"
+        },
+        {
           "current_key": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0"
+        },
+        {
+          "current_key": "AIzaSyAdhhYNx8LRb8OJ1PsngTTObs3xcaF2gyg"
         }
       ],
       "services": {
@@ -59,11 +107,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "863994471927-mt43ig4chk5vcro1aqrpm55qm6r2pqva.apps.googleusercontent.com",
+          "client_id": "863994471927-cbrc8najh25ai3b9ehr1cq6kctcarrdi.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.novaride.passenger",
-            "certificate_hash": "8674b0baffd78a79b7e0984f812fadb43ab320ab"
+            "certificate_hash": "0e6f66bb813be2e188d8b830e944d559a48a519f"
           }
         },
         {
@@ -73,7 +121,13 @@
       ],
       "api_key": [
         {
+          "current_key": "AIzaSyCspDmSvj3uKXtHjms629Za_-020QKJMKs"
+        },
+        {
           "current_key": "AIzaSyDqydP1-c8QdWlIXClUq8WSduTiYVT5Rh0"
+        },
+        {
+          "current_key": "AIzaSyAdhhYNx8LRb8OJ1PsngTTObs3xcaF2gyg"
         }
       ],
       "services": {

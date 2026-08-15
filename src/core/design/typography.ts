@@ -1,7 +1,12 @@
 import type { TextStyle } from "react-native";
 
-// Type scale: bold headings, medium body, generous line heights. Sizes are
-// unscaled so the OS font-size setting still applies on top of them.
+// Type scale of the component layer.
+//
+// The root type scale lives in `src/design/theme.ts` (`typography`) and is used
+// by the map, the sheet and the drawer. The tokens below are the component-tree
+// scale; they are intentionally separate because their sizes differ, and
+// aligning them would change the visual design.
+// Sizes are unscaled so the OS font-size setting still applies on top.
 export const TYPE = {
   display: { fontSize: 34, fontWeight: "900", letterSpacing: -0.6, lineHeight: 40 },
   title: { fontSize: 24, fontWeight: "800", letterSpacing: -0.3, lineHeight: 30 },

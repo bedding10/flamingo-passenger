@@ -43,8 +43,19 @@ function HelpHubBase({
   });
 
   const contact = config.data?.settings["passenger.contact"] as
-    | { phone?: string; emergencyPhone?: string }
+    | { phone?: string }
     | undefined;
+  // The emergency number comes from the dashboard-controlled `safety.emergency`
+  // setting. `passenger.contact.emergencyPhone` was read here but the server
+  // never published such a field, so this button could never appear at all.
+  // While the number is disabled or blank the button stays hidden rather than
+  // dialling a number nobody configured.
+  const emergency = config.data?.settings["safety.emergency"] as
+    | { enabled?: boolean; phone?: string; label?: string }
+    | undefined;
+  const emergencyPhone =
+    emergency?.enabled && emergency.phone ? emergency.phone : null;
+  const emergencyLabel = emergency?.label || tr(messages, "help.emergency");
   const faq = ((config.data?.settings["passenger.faq"] as { items?: FaqEntry[] } | undefined)
     ?.items ?? []) as FaqEntry[];
   const lastTrip = trips.data?.items?.[0] as
@@ -98,15 +109,15 @@ function HelpHubBase({
             </Text>
           </PressScale>
         ) : null}
-        {contact?.emergencyPhone ? (
+        {emergencyPhone ? (
           <PressScale
-            accessibilityLabel={tr(messages, "help.emergency")}
-            onPress={() => void Linking.openURL(`tel:${contact.emergencyPhone}`)}
+            accessibilityLabel={emergencyLabel}
+            onPress={() => void Linking.openURL(`tel:${emergencyPhone}`)}
             style={[styles.action, styles.emergency]}
           >
             <ShieldAlert size={20} color={palette.danger} strokeWidth={2.2} />
             <Text numberOfLines={1} style={[styles.actionText, styles.emergencyText]}>
-              {tr(messages, "help.emergency")}
+              {emergencyLabel}
             </Text>
           </PressScale>
         ) : null}

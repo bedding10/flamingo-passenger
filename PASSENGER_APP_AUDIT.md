@@ -547,4 +547,45 @@ const timer = setInterval(() => setRouteTick((v) => (v + 1) % ROUTE_STEPS), 90);
 
 ---
 
+### ✅ إصلاح انهيار Rendered more hooks — 31 يوليو 2026
+
+**السبب الجذري:** في `src/features/home/HomeScreen.tsx` كان `useMemo` الخاص بـ `placeItems` مكتوباً **بعد** الـ return الشرطي `if (!pickup)`. عند الإقلاع يكون `pickup` فارغاً ريثما يُحلّ موقع الجهاز (2–3 ثوانٍ)، فتُرسم الشاشة بعدد hooks أقل، ثم عند وصول الموقع تُرسم بعدد أكبر → انهيار حتمي.
+
+**الملفات المعدّلة (1):**
+
+| الملف | التعديل | الأثر |
+| --- | --- | --- |
+| `src/features/home/HomeScreen.tsx` | نقل `useMemo` الخاص بـ `placeItems` إلى ما قبل `if (!pickup)` | عدد الـ hooks ثابت في كل دورة رسم، والانهيار عند الإقلاع زال |
+| `src/features/home/HomeScreen.tsx` | إعادة تسمية `useDeviceLocation` إلى `applyDeviceLocation` | الدالة ليست hook، واسمها القديم كان يجعل React وقاعدة rules-of-hooks تعتبر استدعاءها داخل callback استدعاء hook شرطياً |
+
+**الفحص الشامل:** كُتب مدقّق AST يقرأ كل ملفات `src` (86 ملف ts/tsx) ويرصد أي hook داخل `if` أو حلقة أو ثلاثي أو `try` أو بعد return مبكر. النتيجة قبل الإصلاح: مخالفة واحدة. بعد الإصلاح: صفر مخالفات في كل المشروع.
+
+**لم يُمس:** أي مفتاح Google في `eas.json` أو `app.config.js` · أي مسار API · أي مكتبة · أي ميزة أو نص واجهة.
+
+---
+
+## إعادة بناء تجربة الاستخدام — Bottom Sheet واحد (بأسلوب Heetch)
+
+**المشكلة:** كانت `HomeScreen` ترسم في الوقت نفسه لوحة `DestinationSheet` ولوحتين قديمتين من نوع `Animated.View style={styles.bottomSheet}` (لوحة تأكيد الدبوس ولوحة اختيار المركبة)، إضافة إلى `TripPanel` التي كانت تملك لوحتها الخاصة — فظهر بانران فوق بعضهما.
+
+**الحل:** لوحة واحدة لكل الرحلة مع خمس حالات (`idle` / `search` / `ride` / `pin` / `trip`) يتغير محتواها وارتفاعها فقط.
+
+| الملف | السبب | الأطر |
+| --- | --- | --- |
+| `src/features/home/HomeScreen.tsx` | دمج كل اللوحات في `<DestinationSheet>` واحدة، حذف لوحتي الدبوس والمركبة القديمتين، زر قائمة واحد أعلى اليسار وزر موقع ذهبي أسفل اليمين، مسار ذهبي 7px | اختفاء البانر المزدوج؛ حذف 36 مفتاح تنسيق غير مستخدم |
+| `src/components/destination/DestinationSheet.tsx` | لوحة واحدة بثلاث محطات (26% / 62% / 94%)، بدون حواف علوية ولا ظل، فتحة `children` لمحتوى كل حالة | تمدد/تقلص ناعم بدون Flicker |
+| `src/components/destination/SearchField.tsx` | نمط `underline`: أيقونة + نص + خط سفلي فقط | لا صندوق ولا إطار ولا تعبئة |
+| `src/components/destination/RouteRows.tsx` | إلغاء البطاقة الحاوية، زر `+` دائري ذهبي للمحطات، صفوف محطات | لا Container داخل Container |
+| `src/components/map/MapFloatingButton.tsx` | 48pt دائري، ألوان غير معكوسة، نمط `gold`، دعم `bottom` | زر قائمة أبيض/أسود بأيقونة ذهبية + زر موقع ذهبي |
+| `src/components/icons/Icons.tsx` | إضافة `PlusIcon` الذهبية | زر إضافة محطة |
+| `src/design/theme.ts` | `sheetSurfacesFor()` غير معكوسة + `SHEET_DARK_SURFACES` (`#121214`) | لوحة بيضاء نهارًا وسوداء مائلة للرمادي ليلًا |
+| `src/features/home/TripPanel.tsx` | حذف لوحتها الخاصة وصارت محتوى داخل اللوحة الواحدة | منع تراكم اللوحات |
+| `src/core/i18n-fallback.ts` | `destination.searchDestination` و `destination.addStop` (عربي/فرنسي/إنجليزي) | لا نصوص مكتوبة داخل الكود |
+
+**التحقق:** ماسح Hooks → `TOTAL=0` · `<DestinationSheet>` واحدة فقط · ملف واحد يستورد `@gorhom/bottom-sheet` · Prettier ناجح · `quality-gate.mjs` و `validate-release.mjs` بنفس النتائج السابقة (فشل معروف سابقًا في صور المركبات وميتاداتا الحزمة فقط).
+
+**لم يُمس:** أي مفتاح Google في `eas.json` أو `app.config.js` · أي مسار API أو عقد خادم · أي مكتبة جديدة · أي ميزة أو اسم التطبيق.
+
+---
+
 _(يُحدَّث بعد كل مرحلة)_

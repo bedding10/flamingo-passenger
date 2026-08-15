@@ -24,7 +24,9 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "flaminGO uses your location to set pickup and show ride options.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "flaminGO uses the camera to scan wallet QR codes and to take your profile photo.",
+        "NSPhotoLibraryUsageDescription": "flaminGO needs access to your photos so you can choose a profile picture."
       },
       "buildNumber": "1"
     },
@@ -103,9 +105,7 @@
       }
     },
     "owner": "nova112",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/ac734c75-f867-4cb8-9884-41eeb9072eb4"
     }

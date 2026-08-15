@@ -49,6 +49,16 @@ export type ApiError = {
  * a humanised form, so an unknown code is never rendered as an empty string.
  */
 const KNOWN_CODES = new Set([
+  // Auth / OTP (AuthService + OtpService).
+  "INVALID_CREDENTIALS",
+  "ACCOUNT_INACTIVE",
+  "PHONE_ALREADY_REGISTERED",
+  "INVALID_PHONE_NUMBER",
+  "OTP_INVALID",
+  "RATE_LIMITED",
+  "VALIDATION_ERROR",
+  "UNAUTHORIZED",
+  // Ride / wallet.
   "ACTIVE_TRIP_EXISTS",
   "CITY_CAPACITY_REJECTED",
   "INSUFFICIENT_BALANCE",

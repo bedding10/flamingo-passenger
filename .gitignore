@@ -1,17 +1,46 @@
-node_modules/
-.npm/
-.expo/
-.eas/
-dist/
-android/
-ios/
-ci-logs/
-artifacts/
-*.log
+# ---------------------------------------------------------------------------
+# المرحلة 10 — إصلاح أمني: لم يكن لهذا المستودع ملف .gitignore إطلاقًا.
+# خطر خاص بـ Expo: google-services.json و GoogleService-Info.plist وملفات
+# توقيع Android (*.keystore/*.jks) تُرفع بالخطأ إلى Git باستمرار.
+# تذكير: EXPO_PUBLIC_* تُدمج داخل حزمة JS ويمكن استخراجها من APK.
+# ---------------------------------------------------------------------------
+
+# الأسرار والبيئة
 .env
 .env.*
 !.env.example
-*.pem
-*.p12
-*.jks
+
+# بياناعتماد Firebase / Google للمنصات
+google-services.json
+GoogleService-Info.plist
+
+# مفاتيح التوقيع
 *.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+
+# الاعتماديات والبناء
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+coverage/
+*.tsbuildinfo
+
+# مجلدات المنصات المولّدة (prebuild)
+/android
+/ios
+
+# السجلات
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# محررات ونظام التشغيل
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

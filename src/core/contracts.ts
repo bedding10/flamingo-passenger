@@ -30,6 +30,17 @@ export interface Profile {
   tripCount?: number | null;
   /** How many ratings the average is based on. */
   ratingCount?: number | null;
+  // Phase 11 - all four fields are computed by the backend from COMPLETED trips.
+  // The app never sends them (updateProfile does not accept them) and never
+  // derives a level from a trip count: no threshold lives in this app.
+  completedTripsCount?: number | null;
+  /** BRONZE | SILVER | GOLD | DIAMOND | LEGENDARY, decided server-side. */
+  profileLevel?: string | null;
+  /** Public frame URL the backend built from the R2 object key. */
+  profileFrameUrl?: string | null;
+  nextLevel?: string | null;
+  nextLevelAt?: number | null;
+  tripsToNextLevel?: number | null;
 }
 export interface TranslationBundle {
   locale: Locale;
@@ -97,6 +108,10 @@ export interface Trip {
     phone?: string;
     rating?: number;
     avatarUrl?: string;
+    // Phase 11 - served with the trip so the sheet needs no extra request.
+    completedTripsCount?: number | null;
+    profileLevel?: string | null;
+    profileFrameUrl?: string | null;
   };
   vehicle?: { make?: string; model?: string; color?: string; plate?: string };
   driverLat?: number;

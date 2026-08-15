@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from "react";
-import { Image, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation } from "@tanstack/react-query";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { Mail, Phone, Route as RouteIcon, Star } from "lucide-react-native";
 import { Screen, useUi } from "../../components/PassengerScreen";
 import { GoldButton } from "../../components/GoldButton";
+import { ProfileAvatar } from "../../components/ProfileAvatar";
 import { a11yValue } from "../../core/a11y";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi } from "../../core/passenger-api";
@@ -16,12 +17,19 @@ import { withAlpha, type Palette } from "../../core/theme";
 import { RADIUS, SHADOW, SPACING, TYPE } from "../../core/design";
 import type { RootStackParamList } from "../../navigation/types";
 
-// Rider level mirrors the side menu so the two screens never disagree.
-function levelKey(trips: number): string {
-  if (trips >= 75) return "menu.level.gold";
-  if (trips >= 25) return "menu.level.silver";
-  if (trips >= 5) return "menu.level.bronze";
-  return "menu.level.new";
+// Phase 11 - the LEVEL ITSELF comes from the backend (profile.profileLevel).
+// This map is a display lookup only: no thresholds, no "trips >= 10" logic and
+// no business decision is taken in the app.
+const LEVEL_LABEL_KEYS: Record<string, string> = {
+  BRONZE: "menu.level.bronze",
+  SILVER: "menu.level.silver",
+  GOLD: "menu.level.gold",
+  DIAMOND: "menu.level.diamond",
+  LEGENDARY: "menu.level.legendary",
+};
+
+function levelLabelKey(level?: string | null): string {
+  return (level && LEVEL_LABEL_KEYS[level]) || "menu.level.new";
 }
 
 export function AccountProfileScreen({
@@ -40,7 +48,8 @@ export function AccountProfileScreen({
     onSuccess: () => restore(),
   });
 
-  const trips = profile?.tripCount ?? 0;
+  // Phase 11: completed trips only, straight from the server.
+  const trips = profile?.completedTripsCount ?? profile?.tripCount ?? 0;
   const rating = profile?.rating;
   const initial = (profile?.name ?? "").trim().charAt(0).toUpperCase();
   const dirty = name.trim().length > 0 && name.trim() !== (profile?.name ?? "");
@@ -48,16 +57,18 @@ export function AccountProfileScreen({
   return (
     <Screen title={tr(messages, "profile.title")} onBack={navigation.goBack}>
       <Animated.View entering={FadeInDown.duration(260)} style={styles.hero}>
-        <View style={styles.avatar}>
-          {profile?.avatarUrl ? (
-            <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImage} />
-          ) : (
-            <Text style={styles.avatarLetter}>{initial || "\u2605"}</Text>
-          )}
-        </View>
+        <ProfileAvatar
+          avatarUrl={profile?.avatarUrl}
+          frameUrl={profile?.profileFrameUrl}
+          size={104}
+          fallback={initial}
+          textColor={palette.accent}
+        />
         <Text style={styles.name}>{profile?.name ?? ""}</Text>
         <View style={styles.levelBadge}>
-          <Text style={styles.levelText}>{tr(messages, levelKey(trips))}</Text>
+          <Text style={styles.levelText}>
+            {tr(messages, levelLabelKey(profile?.profileLevel))}
+          </Text>
         </View>
       </Animated.View>
 
@@ -82,6 +93,47 @@ export function AccountProfileScreen({
           <Text style={styles.statLabel}>{tr(messages, "settings.language")}</Text>
         </View>
       </View>
+
+      {/* Phase 11 - level progress. Values come from the server; the screen
+          only formats them, and the block hides itself at the top level. */}
+      {profile?.profileLevel ? (
+        <View style={styles.levelCard}>
+          <View style={styles.levelRow}>
+            <Text style={styles.levelRowLabel}>
+              {tr(messages, "profile.level")}
+            </Text>
+            <Text style={styles.levelRowValue}>
+              {tr(messages, levelLabelKey(profile.profileLevel))}
+            </Text>
+          </View>
+          <View style={styles.levelRow}>
+            <Text style={styles.levelRowLabel}>
+              {tr(messages, "profile.completedTrips")}
+            </Text>
+            <Text style={styles.levelRowValue}>{trips}</Text>
+          </View>
+          {profile.nextLevel && profile.nextLevelAt ? (
+            <>
+              <View style={styles.levelRow}>
+                <Text style={styles.levelRowLabel}>
+                  {tr(messages, "profile.progress")}
+                </Text>
+                <Text style={styles.levelRowValue}>
+                  {trips} / {profile.nextLevelAt}
+                </Text>
+              </View>
+              <View style={styles.levelRow}>
+                <Text style={styles.levelRowLabel}>
+                  {tr(messages, "profile.nextLevel")}
+                </Text>
+                <Text style={styles.levelRowValue}>
+                  {tr(messages, levelLabelKey(profile.nextLevel))}
+                </Text>
+              </View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       <Text style={ui.section}>{tr(messages, "profile.name")}</Text>
       <TextInput
@@ -147,6 +199,22 @@ function makeStyles(palette: Palette) {
     },
     levelText: { ...TYPE.overline, color: palette.accent },
     statsRow: { flexDirection: "row", gap: SPACING.sm },
+    // Phase 11 - level progress card, styled like the existing stat cards.
+    levelCard: {
+      gap: SPACING.xs,
+      padding: SPACING.md,
+      borderRadius: RADIUS.md,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surface,
+    },
+    levelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    levelRowLabel: { ...TYPE.caption, color: palette.textMuted },
+    levelRowValue: { ...TYPE.body, color: palette.text },
     stat: {
       flex: 1,
       alignItems: "center",

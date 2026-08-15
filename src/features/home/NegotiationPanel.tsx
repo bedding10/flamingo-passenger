@@ -4,9 +4,11 @@ import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withTiming 
 import type { FareOffer } from "../../core/contracts";
 import type { Palette } from "../../core/theme";
 import { tr } from "../../core/i18n";
-import { a11yButton, announce } from "../../core/a11y";
+import { a11yButton, a11yValue, announce } from "../../core/a11y";
 import { PriceStepper } from "../../components/PriceStepper";
 import { GoldButton } from "../../components/GoldButton";
+import { ChevronIcon } from "../../components/icons/Icons";
+import { colors } from "../../design/theme";
 import type { Styles } from "./HomeScreen";
 
 // Accept button that visually drains as the offer expires: a solid fill
@@ -118,6 +120,16 @@ export function NegotiationPanel({
   );
   return (
     <Animated.View entering={FadeIn}>
+      {/* Visible way back out of the negotiation, next to the hardware button. */}
+      <Pressable
+        onPress={onBack}
+        hitSlop={12}
+        style={styles.backButton}
+        accessibilityRole="button"
+        accessibilityLabel={tr(messages, "common.back")}
+      >
+        <ChevronIcon size={22} color={colors.gold} direction="right" />
+      </Pressable>
       <Text style={styles.sheetTitle}>
         {tr(messages, "home.negotiationTitle")}
       </Text>

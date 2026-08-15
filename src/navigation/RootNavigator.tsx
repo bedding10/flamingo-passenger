@@ -15,6 +15,7 @@ import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileScreen } from "../features/profile/ProfileScreen";
 import { HomeScreen } from "../features/home/HomeScreen";
 import { lazyScreen } from "./lazy";
+import { flushPendingNavigation, navigationRef } from "./navigation-ref";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "./types";
 
@@ -65,6 +66,10 @@ const NotificationsScreen = lazyScreen(() =>
 const AccountScreen = lazyScreen(() =>
   import("../features/menu/AccountScreen").then((m) => m.AccountScreen),
 );
+// Password changing moved out of the account page: one page, one job.
+const PasswordScreen = lazyScreen(() =>
+  import("../features/menu/PasswordScreen").then((m) => m.PasswordScreen),
+);
 const SupportScreen = lazyScreen(() =>
   import("../features/menu/HelpScreen").then((m) => m.HelpScreen),
 );
@@ -106,7 +111,13 @@ export function RootNavigator() {
       {!ready ? (
         <BootScreen />
       ) : (
-        <NavigationContainer theme={navigationTheme}>
+        <NavigationContainer
+          ref={navigationRef}
+          theme={navigationTheme}
+          // A push tapped from a killed app is delivered before this tree
+          // mounts; the parked route is replayed here.
+          onReady={flushPendingNavigation}
+        >
           <Stack.Navigator
             screenOptions={{
               headerShown: false,
@@ -125,6 +136,7 @@ export function RootNavigator() {
                 <Stack.Screen name="Home" component={HomeScreen} options={{ animation: "fade" }} />
                 <Stack.Screen name="Menu" component={MenuScreen} options={{ animation: "slide_from_left" }} />
                 <Stack.Screen name="Profile" component={AccountScreen} />
+                <Stack.Screen name="Password" component={PasswordScreen} />
                 <Stack.Screen name="Trips" component={TripsScreen} />
                 <Stack.Screen name="TripDetails" component={TripDetailsScreen} />
                 <Stack.Screen name="TripCompletion" component={TripCompletionScreen} />

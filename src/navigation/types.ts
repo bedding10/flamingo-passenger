@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Home: undefined;
   Menu: undefined;
   Profile: undefined;
+  Password: undefined;
   Trips: undefined;
   TripDetails: { tripId: string };
   TripCompletion: { tripId: string };

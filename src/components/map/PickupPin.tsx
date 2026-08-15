@@ -13,27 +13,31 @@ import MapPinBase, { PIN_GEOMETRY, type MapPinState } from "./MapPinBase"
 import { colors } from "../../design/theme"
 
 export type PickupPinProps = {
-	state: MapPinState
-	/** Bubble copy (localized). */
-	label?: string
-	hideBubble?: boolean
-	testID?: string
+  state: MapPinState
+  /** Bubble copy (localized). */
+  label?: string
+  hideBubble?: boolean
+  /** "compact" drops the stem and the origin dot (confirmed point). */
+  variant?: "full" | "compact"
+  testID?: string
 }
 
 const PickupPin: React.FC<PickupPinProps> = ({
-	state,
-	label = "نقطة الانطلاق",
-	hideBubble,
-	testID = "pickup-pin",
+  state,
+  label = "نقطة الانطلاق",
+  hideBubble,
+  variant,
+  testID = "pickup-pin",
 }) => (
-	<MapPinBase
-		state={state}
-		label={label}
-		solid
-		hideBubble={hideBubble}
-		testID={testID}
-		glyph={<PersonIcon size={PIN_GEOMETRY.glyphSize} color={colors.black} />}
-	/>
+  <MapPinBase
+    state={state}
+    label={label}
+    solid
+    hideBubble={hideBubble}
+    variant={variant}
+    testID={testID}
+    glyph={<PersonIcon size={PIN_GEOMETRY.glyphSize} color={colors.black} />}
+  />
 )
 
 export default React.memo(PickupPin)

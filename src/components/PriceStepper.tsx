@@ -10,7 +10,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Minus, Plus } from "lucide-react-native";
 import { PressScale } from "./PressScale";
-import { RADIUS, SHADOW, SPACING, TYPE } from "../core/design";
+import { SHADOW } from "../core/design";
+import { colors, radius, spacing, typography } from "../design/theme";
 import { useTheme } from "../core/theme-store";
 import { withAlpha, type Palette } from "../core/theme";
 
@@ -113,7 +114,7 @@ function PriceStepperBase({
           onPress={() => commit(current - range.step)}
           style={styles.stepButton}
         >
-          <Minus size={20} color={palette.text} strokeWidth={2.6} />
+          <Minus size={20} color={colors.gold} strokeWidth={2.8} />
         </PressScale>
         <View style={styles.valueBox}>
           <TextInput
@@ -129,9 +130,9 @@ function PriceStepperBase({
         <PressScale
           accessibilityLabel={increaseLabel}
           onPress={() => commit(current + range.step)}
-          style={styles.stepButton}
+          style={[styles.stepButton, styles.stepButtonPlus]}
         >
-          <Plus size={20} color={palette.text} strokeWidth={2.6} />
+          <Plus size={20} color={colors.ink} strokeWidth={2.8} />
         </PressScale>
       </View>
 
@@ -160,17 +161,28 @@ function PriceStepperBase({
 
 function makeStyles(palette: Palette) {
   return StyleSheet.create({
-    wrap: { gap: SPACING.sm },
-    row: { flexDirection: "row", alignItems: "center", gap: SPACING.md },
+    wrap: { gap: spacing.sm },
+    row: {
+      /* Circular controls sit at both ends of the price, mirrored in RTL. */
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    /* "-": dark surface with a gold ring. */
     stepButton: {
       width: 52,
       height: 52,
-      borderRadius: RADIUS.pill,
-      borderWidth: 1,
-      borderColor: palette.border,
+      borderRadius: radius.pill,
+      borderWidth: 1.5,
+      borderColor: colors.gold,
       backgroundColor: palette.surfaceAlt,
       alignItems: "center",
       justifyContent: "center",
+    },
+    /* "+": solid gold. */
+    stepButtonPlus: {
+      backgroundColor: colors.gold,
+      borderColor: colors.gold,
     },
     valueBox: {
       flex: 1,
@@ -178,25 +190,30 @@ function makeStyles(palette: Palette) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: SPACING.xs,
-      borderRadius: RADIUS.md,
+      gap: spacing.xs,
+      borderRadius: radius.card,
       borderWidth: 1,
       borderColor: palette.border,
       backgroundColor: palette.surface,
       ...SHADOW.card,
     },
+    /* The fare is the loudest number on the screen. */
     valueInput: {
-      ...TYPE.title,
+      ...typography.banner,
       color: palette.text,
       textAlign: "center",
       minWidth: 90,
       paddingVertical: 0,
     },
-    currency: { ...TYPE.caption, color: palette.textMuted, fontWeight: "800" },
+    currency: {
+      ...typography.caption,
+      color: palette.textMuted,
+      fontWeight: "800",
+    },
     track: {
       height: 26,
       justifyContent: "center",
-      borderRadius: RADIUS.pill,
+      borderRadius: radius.pill,
       backgroundColor: palette.surfaceAlt,
       overflow: "hidden",
     },
@@ -205,14 +222,17 @@ function makeStyles(palette: Palette) {
       position: "absolute",
       width: 26,
       height: 26,
-      borderRadius: RADIUS.pill,
+      borderRadius: radius.pill,
       backgroundColor: palette.surface,
       borderWidth: 2,
-      borderColor: palette.accent,
+      borderColor: colors.gold,
       ...SHADOW.card,
     },
-    scaleRow: { flexDirection: "row", justifyContent: "space-between" },
-    scaleText: { ...TYPE.caption, color: palette.textMuted },
+    scaleRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+    },
+    scaleText: { ...typography.caption, color: palette.textMuted },
   });
 }
 

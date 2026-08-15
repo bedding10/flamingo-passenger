@@ -24,7 +24,16 @@ export type TripChatMessage = {
   tripId: string;
   senderId: string;
   body: string;
+  /** null until the driver opens the thread. */
+  readAt?: string | null;
   createdAt: string;
+};
+
+/** Payload of `trip:messages_read`. `readerId` is whoever did the reading. */
+export type TripMessagesRead = {
+  tripId: string;
+  readerId: string;
+  readAt: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -186,11 +195,18 @@ function acquire(tripId: string): { socket: Socket; release: () => void } {
 export async function connectTripChat(
   tripId: string,
   onMessage: (message: TripChatMessage) => void,
+  /**
+   * Fires when the DRIVER opens the thread, so the passenger's own bubbles can
+   * flip from sent to read. Optional: existing callers keep working unchanged.
+   */
+  onRead?: (payload: TripMessagesRead) => void,
 ) {
   const { socket, release } = acquire(tripId);
   socket.on("trip:message", onMessage);
+  if (onRead) socket.on("trip:messages_read", onRead);
   return () => {
     socket.off("trip:message", onMessage);
+    if (onRead) socket.off("trip:messages_read", onRead);
     release();
   };
 }

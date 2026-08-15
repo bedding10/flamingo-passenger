@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { Image, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Animated, { FadeInDown, SlideInLeft } from "react-native-reanimated";
@@ -19,6 +19,7 @@ import { PressScale } from "../../components/PressScale";
 import { tr } from "../../core/i18n";
 import { passengerServicesApi, type MenuRoute } from "../../core/passenger-api";
 import { useSession } from "../../core/session-store";
+import { ProfileAvatar } from "../../components/ProfileAvatar";
 import { useMessages } from "../../core/use-messages";
 import { useTheme } from "../../core/theme-store";
 import { withAlpha, type Palette } from "../../core/theme";
@@ -41,11 +42,19 @@ const ORDER: { route: MenuRoute; labelKey: string; icon: IconComponent }[] = [
 const PILLARS: MenuRoute[] = ["Profile", "Wallet", "Trips", "Support"];
 
 // Loyalty tier derived from completed trips; purely presentational.
-function levelKey(trips: number): string {
-  if (trips >= 75) return "menu.level.gold";
-  if (trips >= 25) return "menu.level.silver";
-  if (trips >= 5) return "menu.level.bronze";
-  return "menu.level.new";
+// Phase 11 - the LEVEL ITSELF comes from the backend (profile.profileLevel).
+// This map is a display lookup only: no thresholds, no "trips >= 10" logic and
+// no business decision is taken in the app.
+const LEVEL_LABEL_KEYS: Record<string, string> = {
+  BRONZE: "menu.level.bronze",
+  SILVER: "menu.level.silver",
+  GOLD: "menu.level.gold",
+  DIAMOND: "menu.level.diamond",
+  LEGENDARY: "menu.level.legendary",
+};
+
+function levelLabelKey(level?: string | null): string {
+  return (level && LEVEL_LABEL_KEYS[level]) || "menu.level.new";
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, "Menu">;
@@ -93,7 +102,8 @@ export function MenuScreen({ navigation }: Props) {
     }));
   }, [config.data]);
 
-  const trips = profile?.tripCount ?? 0;
+  // Phase 11: completed trips only, straight from the server.
+  const trips = profile?.completedTripsCount ?? profile?.tripCount ?? 0;
   const rating = profile?.rating;
   const ratingCount = profile?.ratingCount ?? 0;
   const avatarUrl = profile?.avatarUrl ?? null;
@@ -113,15 +123,13 @@ export function MenuScreen({ navigation }: Props) {
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.headerRow}>
-          <View style={styles.avatar}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarLetter}>
-                {(profile?.name ?? "?").trim().charAt(0).toUpperCase()}
-              </Text>
-            )}
-          </View>
+          <ProfileAvatar
+            avatarUrl={avatarUrl}
+            frameUrl={profile?.profileFrameUrl}
+            size={64}
+            fallback={profile?.name ?? "?"}
+            textColor={palette.accent}
+          />
           <View style={styles.headerText}>
             {editing ? (
               <TextInput
@@ -148,7 +156,9 @@ export function MenuScreen({ navigation }: Props) {
             <Text style={styles.phone}>{profile?.phone}</Text>
             <View style={styles.badgeRow}>
               <View style={styles.levelBadge}>
-                <Text style={styles.levelText}>{tr(messages, levelKey(trips))}</Text>
+                <Text style={styles.levelText}>
+                  {tr(messages, levelLabelKey(profile?.profileLevel))}
+                </Text>
               </View>
               <Text style={styles.tripCount}>
                 {trips} {tr(messages, "trips.title")}

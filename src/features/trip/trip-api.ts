@@ -10,6 +10,24 @@ import type {
   Trip,
 } from "../../core/contracts";
 
+/**
+ * D-7 — server decision shown before a cancellation is confirmed.
+ * The server owns the wording and the policy; the app never computes it and
+ * never displays a money amount. `chargesMoney` is always false under the
+ * current policy (no passenger cancellation fee exists at all), but it is kept
+ * in the contract so the UI never has to assume.
+ */
+export type CancelPreview = {
+  level: "NONE" | "INFO" | "WARN" | "CRITICAL";
+  title: string;
+  message: string;
+  chargesMoney: boolean;
+  countsTowardFreeze: boolean;
+  cancellationsInWindow?: number;
+  freezeThreshold?: number;
+  windowDays?: number;
+};
+
 const appVersion = Application.nativeApplicationVersion ?? "0.3.0";
 export const passengerApi = {
   catalog: async () => {
@@ -91,6 +109,7 @@ export const passengerApi = {
     rideClass: string,
     paymentMethod: "CASH" | "WALLET" | "CARD",
     stops: Point[] = [],
+    couponCode?: string,
   ) => {
     const { data } = await api.post<Trip>("/rides/request", {
       pickupLat: pickup.lat,
@@ -102,6 +121,9 @@ export const passengerApi = {
       vehicleTypeId,
       rideClass,
       paymentMethod,
+      // Only the code travels. The backend revalidates it and recomputes the
+      // discount from its own fare, so no client value can change the price.
+      ...(couponCode ? { couponCode } : {}),
       // The payload stays byte-identical when no stop was added.
       ...(stops.length
         ? {
@@ -116,6 +138,10 @@ export const passengerApi = {
     return data;
   },
   getRide: async (id: string) => (await api.get<Trip>(`/rides/${id}`)).data,
+  // D-7: asked right before the confirmation dialog. Read-only, and a failure
+  // must never block the cancellation itself (see HomeScreen.confirmCancel).
+  cancelPreview: async (id: string) =>
+    (await api.get<CancelPreview>(`/rides/${id}/cancel-preview`)).data,
   cancelRide: async (id: string) =>
     (await api.patch<Trip>(`/rides/${id}/cancel`)).data,
   createNegotiation: async (

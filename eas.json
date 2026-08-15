@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">=21.0.3",
+    "version": ">=21.4.0",
     "appVersionSource": "remote"
   },
   "build": {
@@ -10,30 +10,31 @@
       "channel": "development",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api"
-      }
+      },
+      "node": "20.18.1"
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
-        "EAS_PROJECT_ID": "ac734c75-f867-4cb8-9884-41eeb9072eb4",
-        "FLAMINGO_REQUIRE_NATIVE_CONFIG": "1"
+        "EAS_PROJECT_ID": "ac734c75-f867-4cb8-9884-41eeb9072eb4"
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "node": "24.17.0"
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api",
-        "FLAMINGO_REQUIRE_NATIVE_CONFIG": "1"
+        "EXPO_PUBLIC_API_URL": "https://backend-diao.onrender.com/api"
       },
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "node": "20.18.1"
     }
   },
   "submit": {

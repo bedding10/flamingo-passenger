@@ -1,37 +1,37 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  Dimensions,
   Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import MapView, { AnimatedRegion, LatLng, Marker, Polyline, type Region } from "react-native-maps";
+import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import MapView, { type Region } from "react-native-maps";
 import * as Location from "expo-location";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import Animated, {
-  FadeIn,
-  FadeOut,
-  SlideInDown,
-  SlideOutDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
+import { useMutation } from "@tanstack/react-query";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import type {
   PlaceSuggestion,
   Point,
-  Quote,
-  Trip,
   VehicleType,
 } from "../../core/contracts";
 import { managedAsset, syncManagedAssets } from "../../core/assets";
-import { loadTranslations, tr } from "../../core/i18n";
+import { tr } from "../../core/i18n";
+import { useMessages } from "../../core/use-messages";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocaleStore } from "../../core/locale-store";
+import { haversineDistance } from "../../core/geo";
 import { reportError } from "../../core/observability";
 import { useSession } from "../../core/session-store";
 import {
@@ -41,34 +41,38 @@ import {
   mapStyleFor,
 } from "../../core/theme";
 import { RADIUS, SHADOW, SPACING, TYPE } from "../../core/design";
+import { colors as brand, sheetSurfacesFor } from "../../design/theme";
 import { PressScale } from "../../components/PressScale";
 import { GoldButton } from "../../components/GoldButton";
 import { a11yButton, a11yImage, a11yValue } from "../../core/a11y";
 import { nextMode, useTheme } from "../../core/theme-store";
-import {
-  connectTrip,
-  type TripEvent,
-  type TripSignal,
-} from "../trip/realtime";
 import { passengerApi } from "../trip/trip-api";
-import { RouteComet } from "./RouteComet";
+import RideMap from "./RideMap";
+import { useUserLocation } from "./useUserLocation";
+import { useRideQuote } from "./useRideQuote";
+import { useTripLifecycle } from "./useTripLifecycle";
 import { NegotiationPanel } from "./NegotiationPanel";
 import { TripPanel } from "./TripPanel";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/types";
-import { passengerServicesApi, type PassengerPaymentMethod } from "../../core/passenger-api";
+import { passengerServicesApi } from "../../core/passenger-api";
 import PickupPin from "../../components/map/PickupPin";
 import DropoffPin from "../../components/map/DropoffPin";
 import { PIN_HEIGHT } from "../../components/map/MapPinBase";
 import MapFloatingButton from "../../components/map/MapFloatingButton";
 import DestinationSheet, {
   type PlaceItem,
+  type SheetStage,
 } from "../../components/destination/DestinationSheet";
+import RouteRows from "../../components/destination/RouteRows";
 import SideDrawer, {
   type DrawerMenuKey,
 } from "../../components/drawer/SideDrawer";
-import { MenuIcon, MoonIcon, SunIcon } from "../../components/icons/Icons";
-import { pickImageFromLibrary } from "../menu/media";
+import {
+  ChevronIcon,
+  MenuIcon,
+  TargetIcon,
+} from "../../components/icons/Icons";
 
 type SearchTarget = "pickup" | "destination" | `stop:${number}`;
 // Intermediate stops are addressed as "stop:0", "stop:1", ... so a single
@@ -76,19 +80,6 @@ type SearchTarget = "pickup" | "destination" | `stop:${number}`;
 const stopTarget = (index: number): SearchTarget => `stop:${index}`;
 const stopIndexOf = (target: SearchTarget | null): number | null =>
   target && target.startsWith("stop:") ? Number(target.slice(5)) : null;
-type Negotiation = { id: string; suggestedFare?: number; suggested?: number };
-const ACTIVE = new Set([
-  "SEARCHING",
-  "ACCEPTED",
-  "ARRIVING",
-  "IN_PROGRESS",
-]);
-// Top-down vehicle artwork used for the live driver marker. Bundled in the
-// app (3KB each) so the marker draws instantly, offline, with no network hop.
-const CAR_MARKER = require("../../../assets/vehicle-car.webp");
-const MOTO_MARKER = require("../../../assets/vehicle-moto.webp");
-const markerForClass = (rideClass?: string) =>
-  rideClass === "BIKE" || rideClass === "MOTO" ? MOTO_MARKER : CAR_MARKER;
 // Bundled 3D class artwork (used until the dashboard ships its own image for
 // a class). Local files draw instantly, with no network round trip.
 const CLASS_ART: Record<string, number> = {
@@ -107,7 +98,10 @@ const CLASS_ART: Record<string, number> = {
 const ART_KEYWORDS: Array<[RegExp, number]> = [
   [/(bike|moto|scooter|دراج)/i, CLASS_ART.BIKE],
   [/(xl|van|family|minibus|عائل|كبير)/i, CLASS_ART.XL],
-  [/(comfort|premium|business|sedan|vip|lux|مريح|فاخر|أعمال)/i, CLASS_ART.COMFORT],
+  [
+    /(comfort|premium|business|sedan|vip|lux|مريح|فاخر|أعمال)/i,
+    CLASS_ART.COMFORT,
+  ],
   [/(eco|economy|standard|اقتصاد|عاد)/i, CLASS_ART.ECONOMY],
 ];
 const artForVehicle = (vehicle: {
@@ -123,8 +117,11 @@ const artForVehicle = (vehicle: {
   ]
     .filter(Boolean)
     .join(" ");
-  for (const [pattern, art] of ART_KEYWORDS) if (pattern.test(haystack)) return art;
-  return CLASS_ART[(vehicle.rideClass ?? "").toUpperCase()] ?? CLASS_ART.ECONOMY;
+  for (const [pattern, art] of ART_KEYWORDS)
+    if (pattern.test(haystack)) return art;
+  return (
+    CLASS_ART[(vehicle.rideClass ?? "").toUpperCase()] ?? CLASS_ART.ECONOMY
+  );
 };
 // Illustration shown while the app is asking for (or missing) the location.
 const LOCATION_ART = require("../../../assets/illustration-location.webp");
@@ -132,6 +129,11 @@ const LOCATION_ART = require("../../../assets/illustration-location.webp");
 const FALLBACK_POINT = { lat: 36.7538, lng: 3.0588 };
 // Matches the backend limit (ArrayMaxSize(3) on RequestRideDto.stops).
 const MAX_STOPS = 3;
+
+// Below this the pickup and the device are "the same place", and the gold pin
+// would just sit on top of the blue location dot.
+const SAME_PLACE_M = 30;
+
 // Frames of the travelling light that runs along the gold route line.
 const ROUTE_STEPS = 60;
 const assetFallbackByClass: Record<string, string> = {
@@ -153,12 +155,21 @@ const assetFallbackByClass: Record<string, string> = {
 // Pure UI: the pin never touches the map, geocoding or snapping logic.
 // ---------------------------------------------------------------------------
 
-export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, "Home">) {
+export function HomeScreen({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, "Home">) {
   const profile = useSession((s) => s.profile);
   const { palette, name: themeName, setMode } = useTheme();
-  const styles = useMemo(() => makeStyles(palette, themeName), [palette, themeName]);
+  const styles = useMemo(
+    () => makeStyles(palette, themeName),
+    [palette, themeName],
+  );
+  const insets = useSafeAreaInsets();
   const map = useRef<MapView>(null);
-  const [messages, setMessages] = useState<Record<string, string>>({});
+  // The persisted app language. It is the ONE source of truth for the UI
+  // language: the server profile is only a mirror of it.
+  // نمط الترجمة الموحّد: نفس المخزن الذي تستخدمه بقية الشاشات.
+  const { locale, messages } = useMessages();
   const [pickup, setPickup] = useState<Point | null>(null);
   const [destination, setDestination] = useState<Point | null>(null);
   // Intermediate stops the driver must pass through. A slot stays null while
@@ -177,188 +188,72 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const pinRegion = useRef<Region | null>(null);
-  const [selected, setSelected] = useState<VehicleType | null>(null);
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [payment, setPayment] = useState<PassengerPaymentMethod["method"] | null>(null);
-  const [negotiation, setNegotiation] = useState<Negotiation | null>(null);
-  const [proposedFare, setProposedFare] = useState("");
-  // Offers the passenger explicitly turned down. Kept on the client so the
-  // list stays clean while the server keeps its own PENDING/EXPIRED lifecycle.
-  const [dismissedOffers, setDismissedOffers] = useState<string[]>([]);
-  // Optional free-text note shown to drivers together with the proposed fare.
-  const [fareNote, setFareNote] = useState("");
-  const [trip, setTrip] = useState<Trip | null>(null);
   const [assetRevision, setAssetRevision] = useState(0);
-  // The device position stays available as the FIRST suggestion ("my current
-  // location") — it is never forced as the pickup point.
-  const [deviceLocation, setDeviceLocation] = useState<Point | null>(null);
-  const driverCoordinate = useRef(
-    new AnimatedRegion({
-      latitude: 0,
-      longitude: 0,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
-    }),
-  ).current;
-  const hasDriverCoordinate = useRef(false);
 
-  const [locationDenied, setLocationDenied] = useState(false);
-  // Terminal outcome of the matching search, fed by the socket lifecycle.
-  // Until now `ride:no_drivers` and `ride:error` were never consumed, so a
-  // failed search left the passenger staring at an eternal "searching" pulse.
-  const [matchFailure, setMatchFailure] = useState<{
-    kind: "noDrivers" | "error";
-    code?: string;
-  } | null>(null);
-  // Asking for the location is retryable: the illustration screen calls this
-  // again when the passenger taps "allow", so a first refusal is not final.
-  const requestLocation = useCallback(async () => {
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") {
-        setLocationDenied(true);
-        return;
-      }
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const point = {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-      };
-      setLocationDenied(false);
-      setDeviceLocation(point);
-      setPickup((prev) => prev ?? point);
-    } catch (e) {
-      reportError(e, "home.location");
-      setLocationDenied(true);
-    }
+  // ── Extracted state machines ──────────────────────────────────────────
+  // The live ride: server state, the safety-net poll, the realtime socket and
+  // the animated driver marker. Same events, same endpoints as before.
+  const { trip, setTrip, matchFailure, setMatchFailure, driverCoordinate } =
+    useTripLifecycle();
+  // Catalog, suggestions, route, quote, payment and fare negotiation. The
+  // names below are unchanged, so every consumer in this file still reads the
+  // same variables it always did.
+  const {
+    paymentMethods,
+    suggestions,
+    offers,
+    route,
+    vehicles,
+    selected,
+    setSelected,
+    quote,
+    setQuote,
+    payment,
+    setPayment,
+    negotiation,
+    setNegotiation,
+    proposedFare,
+    setProposedFare,
+    dismissedOffers,
+    setDismissedOffers,
+    fareNote,
+    setFareNote,
+    quoteMutation,
+    requestMutation,
+    startNegotiation,
+  } = useRideQuote({
+    pickup,
+    destination,
+    stops,
+    search,
+    searchTarget,
+    onTripCreated: setTrip,
+  });
+  // ── Where the passenger is ───────────────────────────────────────────────
+  // The device fix only ever SEEDS an empty pickup; it never overwrites a
+  // point the passenger already chose. Exactly the previous rule, moved.
+  const seedPickup = useCallback((point: Point) => {
+    setPickup((prev) => prev ?? point);
   }, []);
+  const {
+    deviceLocation,
+    locationDenied,
+    isFarFromMe,
+    requestLocation,
+    readCurrentPoint,
+    syncCameraDistance,
+  } = useUserLocation({
+    // Full GPS accuracy is spent only while the pickup is still undecided.
+    precise: pickup == null || pinMode === "pickup",
+    onFix: seedPickup,
+  });
 
   useEffect(() => {
-    loadTranslations()
-      .then(setMessages)
-      .catch((e) => reportError(e, "home.i18n"));
     syncManagedAssets()
       .then(() => setAssetRevision((x) => x + 1))
       .catch((e) => reportError(e, "home.assets"));
     void requestLocation();
-  }, [profile?.locale, requestLocation]);
-
-  const catalog = useQuery({
-    queryKey: ["catalog"],
-    queryFn: passengerApi.catalog,
-    staleTime: 60_000,
-  });
-  const paymentMethods = useQuery({
-    queryKey: ["passenger-payment-methods"],
-    queryFn: passengerServicesApi.paymentMethods,
-    staleTime: 60_000,
-  });
-  useEffect(() => {
-    const methods = paymentMethods.data ?? [];
-    if (!payment || !methods.some((item) => item.method === payment)) {
-      setPayment(methods[0]?.method ?? null);
-    }
-  }, [paymentMethods.data, payment]);
-  const suggestions = useQuery({
-    queryKey: ["places", searchTarget, search, pickup],
-    queryFn: () => passengerApi.autocomplete(search, pickup ?? undefined),
-    enabled: !!searchTarget && search.trim().length > 1,
-    staleTime: 30_000,
-  });
-  const offers = useQuery({
-    queryKey: ["fareOffers", negotiation?.id],
-    queryFn: () => passengerApi.offers(negotiation!.id),
-    enabled: !!negotiation,
-    refetchInterval: negotiation ? 3000 : false,
-  });
-  const tripPoll = useQuery({
-    queryKey: ["trip", trip?.id],
-    queryFn: () => passengerApi.getRide(trip!.id),
-    enabled: !!trip?.id && ACTIVE.has(trip.status),
-    // The socket pushes trip:status the moment it changes; this poll is only
-    // a safety net for a dropped connection, so it can run far slower.
-    refetchInterval: trip?.id && ACTIVE.has(trip.status) ? 20000 : false,
-  });
-  const route = useQuery({
-    queryKey: ["route", pickup, destination],
-    queryFn: () => passengerApi.directions(pickup!, destination!),
-    enabled: !!pickup && !!destination,
-    staleTime: 300_000,
-  });
-
-  useEffect(() => {
-    if (tripPoll.data) setTrip((old) => ({ ...old, ...tripPoll.data }) as Trip);
-  }, [tripPoll.data]);
-  useEffect(() => {
-    if (!trip?.id || !ACTIVE.has(trip.status)) return;
-    let dispose: (() => void) | undefined;
-    let disposed = false;
-    const update = (event: TripEvent) => {
-      if (typeof event.lat === "number" && typeof event.lng === "number") {
-        if (!hasDriverCoordinate.current) {
-          driverCoordinate.setValue({
-            latitude: event.lat,
-            longitude: event.lng,
-            latitudeDelta: 0,
-            longitudeDelta: 0,
-          });
-          hasDriverCoordinate.current = true;
-        } else {
-          driverCoordinate
-            .timing({
-              latitude: event.lat,
-              longitude: event.lng,
-              duration: 900,
-              useNativeDriver: false,
-            } as Parameters<typeof driverCoordinate.timing>[0])
-            .start();
-        }
-        setTrip((old) =>
-          old
-            ? {
-                ...old,
-                driverLat: event.lat,
-                driverLng: event.lng,
-                heading: event.heading,
-              }
-            : old,
-        );
-      } else setTrip((old) => (old ? ({ ...old, ...event } as Trip) : old));
-    };
-    const signal = (event: TripSignal) => {
-      switch (event.type) {
-        case "searching":
-          // A new search round started: clear any previous failure.
-          setMatchFailure(null);
-          break;
-        case "accepted":
-        case "assigned":
-          setMatchFailure(null);
-          break;
-        case "noDrivers":
-          setMatchFailure({ kind: "noDrivers" });
-          break;
-        case "error":
-          setMatchFailure({ kind: "error", code: event.code });
-          break;
-        default:
-          // Offer signals are consumed by the negotiation panel.
-          break;
-      }
-    };
-    void connectTrip(trip.id, update, signal)
-      .then((close) => {
-        if (disposed) close();
-        else dispose = close;
-      })
-      .catch(() => undefined);
-    return () => {
-      disposed = true;
-      dispose?.();
-    };
-  }, [driverCoordinate, trip?.id, trip?.status]);
+  }, [requestLocation]);
 
   useEffect(() => {
     if (!pickup || pinMode) return;
@@ -384,34 +279,26 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       );
   }, [pickup, destination, pinMode, trip?.driverLat, trip?.driverLng]);
 
-  const vehicles = useMemo(
-    () => catalog.data?.categories.flatMap((category) => category.types) ?? [],
-    [catalog.data],
-  );
-
-  const applyPoint = useCallback(
-    (target: SearchTarget, point: Point) => {
-      const stopIndex = stopIndexOf(target);
-      if (stopIndex != null) {
-        setStops((current) => {
-          const next = [...current];
-          next[stopIndex] = point;
-          return next;
-        });
-        setQuote(null);
-        setNegotiation(null);
-        return;
-      }
-      if (target === "pickup") setPickup(point);
-      else {
-        setDestination(point);
-        setSelected(null);
-        setQuote(null);
-        setNegotiation(null);
-      }
-    },
-    [],
-  );
+  const applyPoint = useCallback((target: SearchTarget, point: Point) => {
+    const stopIndex = stopIndexOf(target);
+    if (stopIndex != null) {
+      setStops((current) => {
+        const next = [...current];
+        next[stopIndex] = point;
+        return next;
+      });
+      setQuote(null);
+      setNegotiation(null);
+      return;
+    }
+    if (target === "pickup") setPickup(point);
+    else {
+      setDestination(point);
+      setSelected(null);
+      setQuote(null);
+      setNegotiation(null);
+    }
+  }, []);
 
   const choosePlace = async (item: PlaceSuggestion) => {
     const label =
@@ -425,20 +312,16 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     setSearchTarget(null);
   };
 
-  const useDeviceLocation = async () => {
+  // Plain async helper, NOT a hook. It was previously named `useDeviceLocation`,
+  // which made React and the rules-of-hooks lint rule treat a call made inside a
+  // JSX callback as a conditional hook call.
+  const applyDeviceLocation = async () => {
     const target = searchTarget ?? "pickup";
     let point = deviceLocation;
     if (!point) {
-      try {
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        point = { lat: position.coords.latitude, lng: position.coords.longitude };
-        setDeviceLocation(point);
-      } catch (e) {
-        reportError(e, "home.location.current");
-        return;
-      }
+      // Full accuracy only when this fix becomes the pickup point.
+      point = await readCurrentPoint(target === "pickup");
+      if (!point) return;
     }
     applyPoint(target, {
       ...point,
@@ -453,6 +336,10 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
   const onRegionChangeComplete = useCallback(
     (region: Region) => {
       pinRegion.current = region;
+      // Recentre affordance: measured on every settled camera, independent of
+      // pin mode. 80 m is roughly "a different block", small enough to feel
+      // responsive and large enough to ignore GPS jitter.
+      syncCameraDistance({ lat: region.latitude, lng: region.longitude });
       if (!pinMode) return;
       void (async () => {
         try {
@@ -473,7 +360,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         }
       })();
     },
-    [pinMode],
+    [syncCameraDistance, pinMode],
   );
   const confirmPin = () => {
     const region = pinRegion.current;
@@ -488,35 +375,6 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     setPinDragging(false);
   };
 
-  const quoteMutation = useMutation({
-    mutationFn: async (vehicle: VehicleType) => {
-      if (!pickup || !destination) throw Error("ROUTE_REQUIRED");
-      const value = await passengerApi.quote(
-        pickup,
-        destination,
-        vehicle.id,
-        vehicle.rideClass,
-      );
-      setSelected(vehicle);
-      setQuote(value);
-      return value;
-    },
-  });
-  const requestMutation = useMutation({
-    mutationFn: async () => {
-      if (!pickup || !destination || !selected || !payment) throw Error("ROUTE_REQUIRED");
-      const value = await passengerApi.requestRide(
-        pickup,
-        destination,
-        selected.id,
-        selected.rideClass,
-        payment,
-        stops.filter((stop): stop is Point => !!stop),
-      );
-      setTrip(value);
-      return value;
-    },
-  });
   const cancelMutation = useMutation({
     mutationFn: async () => {
       if (!trip) return;
@@ -525,22 +383,69 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     },
   });
   // Cancelling used to fire on the first tap with no confirmation, so a
-  // mis-tap during a ride cancelled it outright - and a cancellation fee can
-  // apply once the driver is on the way. Every major ride-hailing app confirms.
-  const confirmCancel = useCallback(() => {
+  // mis-tap during a ride cancelled it outright. D-7: the warning text now
+  // comes from the SERVER (/rides/:id/cancel-preview), which knows the trip
+  // state and the repeated-cancellation policy. There is NO passenger
+  // cancellation fee any more, so no money is ever mentioned here; the risk is
+  // that repeated cancellations can freeze the account. If the preview call
+  // fails we fall back to the local text and still allow the cancellation -
+  // never block a passenger from cancelling because of a failed advisory call.
+  const confirmCancel = useCallback(async () => {
+    let title = tr(messages, "home.cancelConfirm.title");
+    let body = tr(messages, "home.cancelConfirm.body");
+    if (trip) {
+      try {
+        const preview = await passengerApi.cancelPreview(trip.id);
+        if (preview?.title) title = preview.title;
+        if (preview?.message) body = preview.message;
+      } catch (e) {
+        reportError(e, "home.cancelPreview");
+      }
+    }
+    Alert.alert(title, body, [
+      { text: tr(messages, "common.back"), style: "cancel" },
+      {
+        text: tr(messages, "home.cancelRide"),
+        style: "destructive",
+        onPress: () => cancelMutation.mutate(),
+      },
+    ]);
+  }, [cancelMutation, messages, trip]);
+  // SOS. The client is deliberately dumb here: it sends the trip id and the
+  // last known position, and the SERVER is what decides whether this trip
+  // belongs to this passenger. `deviceLocation` can be null (permission
+  // refused), and the report still goes out without coordinates - a report
+  // with no position beats no report at all.
+  const sosMutation = useMutation({
+    mutationFn: async () => {
+      const point = deviceLocation ?? (await readCurrentPoint(true));
+      return passengerServicesApi.reportSafetyIncident({
+        tripId: trip?.id,
+        lat: point?.lat,
+        lng: point?.lng,
+        type: "SOS",
+      });
+    },
+    onSuccess: () => Alert.alert(tr(messages, "safety.sent")),
+    onError: (e) => {
+      reportError(e, "home.sos");
+      Alert.alert(tr(messages, "safety.error"));
+    },
+  });
+  const confirmSos = useCallback(() => {
     Alert.alert(
-      tr(messages, "home.cancelConfirm.title"),
-      tr(messages, "home.cancelConfirm.body"),
+      tr(messages, "safety.confirmTitle"),
+      tr(messages, "safety.confirmBody"),
       [
-        { text: tr(messages, "common.back"), style: "cancel" },
+        { text: tr(messages, "safety.back"), style: "cancel" },
         {
-          text: tr(messages, "home.cancelRide"),
+          text: tr(messages, "safety.confirmSend"),
           style: "destructive",
-          onPress: () => cancelMutation.mutate(),
+          onPress: () => sosMutation.mutate(),
         },
       ],
     );
-  }, [cancelMutation, messages]);
+  }, [sosMutation, messages]);
   // "No driver found" must be recoverable without retyping the trip. Cancels
   // the exhausted ride server-side, then re-sends the SAME request with the
   // route and vehicle the passenger already chose. Existing endpoints only.
@@ -555,25 +460,6 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       await requestMutation.mutateAsync();
     },
   });
-  const startNegotiation = async () => {
-    if (!pickup || !destination || !selected) return;
-    const value = await passengerApi.createNegotiation(
-      pickup,
-      destination,
-      selected.id,
-      selected.rideClass,
-    );
-    setNegotiation(value);
-    setProposedFare(
-      String(
-        value.suggestedFare ??
-          value.suggested ??
-          quote?.fare ??
-          quote?.total ??
-          "",
-      ),
-    );
-  };
   const resetRide = () => {
     setTrip(null);
     setMatchFailure(null);
@@ -593,31 +479,88 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     if (pinMode && !pinDragging) setPinDragging(true);
   }, [pinMode, pinDragging]);
 
-  const mapStyle = useMemo(() => mapStyleFor(palette.mapStyle), [palette.mapStyle]);
+  const mapStyle = useMemo(
+    () => mapStyleFor(palette.mapStyle),
+    [palette.mapStyle],
+  );
 
   // Travelling light: the animated slice now lives inside <RouteComet/>, a
   // leaf component. Its 90ms tick used to re-render this whole screen about
   // eleven times a second; it is now scoped to two polylines.
 
-  // Back button: leaving the app takes two consecutive presses.
+  // Back button: every open surface is closed one level at a time, and only a
+  // truly idle screen falls through to the two-press exit.
   const [exitHint, setExitHint] = useState(false);
   const lastBackPress = useRef(0);
   useEffect(() => {
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (searchTarget) {
-        setSearchTarget(null);
-        setStops((current) => current.filter((stop) => !!stop));
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        // 1. the drawer sits above everything else
+        if (drawerOpen) {
+          setDrawerOpen(false);
+          return true;
+        }
+        // 2. the fare negotiation panel
+        if (negotiation) {
+          setNegotiation(null);
+          setDismissedOffers([]);
+          setFareNote("");
+          return true;
+        }
+        // 3. manual point picking on the map
+        if (pinMode) {
+          setPinMode(null);
+          setPinDragging(false);
+          setPinAddress("");
+          return true;
+        }
+        // 4. the search stage of the sheet
+        if (searchTarget) {
+          setSearchTarget(null);
+          setSearch("");
+          setStops((current) => current.filter((stop) => !!stop));
+          return true;
+        }
+        // 5. a confirmed route: drop it and go back to the gold banner
+        if (destination) {
+          resetRide();
+          return true;
+        }
+        // 6. nothing is open: two presses leave the app
+        const now = Date.now();
+        if (now - lastBackPress.current < 2000) return false;
+        lastBackPress.current = now;
+        setExitHint(true);
+        setTimeout(() => setExitHint(false), 2000);
         return true;
-      }
-      const now = Date.now();
-      if (now - lastBackPress.current < 2000) return false;
-      lastBackPress.current = now;
-      setExitHint(true);
-      setTimeout(() => setExitHint(false), 2000);
-      return true;
-    });
+      },
+    );
     return () => subscription.remove();
-  }, [searchTarget]);
+  }, [drawerOpen, negotiation, pinMode, searchTarget, destination]);
+
+  // Suggestions are mapped 1:1 to sheet rows; the id is the index so the row
+  // can be resolved back to the untouched API result on selection.
+  // NOTE: this hook MUST stay above the `if (!pickup)` early return below.
+  // While the device location is still resolving, `pickup` is null and the
+  // screen returns early; any hook placed after that return is skipped on the
+  // first renders and then executed once the location arrives, which is the
+  // exact cause of "Rendered more hooks than during the previous render.".
+  const placeItems: PlaceItem[] = useMemo(
+    () =>
+      (suggestions.data ?? []).map((item, index) => ({
+        id: String(index),
+        title: String(
+          item.address ?? item.description ?? item.label ?? item.name ?? "",
+        ),
+        subtitle:
+          item.description && item.address
+            ? String(item.description)
+            : undefined,
+        kind: "suggestion" as const,
+      })),
+    [suggestions.data],
+  );
 
   if (!pickup)
     return (
@@ -657,23 +600,7 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
       </View>
     );
   const driverVisible = trip?.driverLat != null && trip.driverLng != null;
-  // Suggestions are mapped 1:1 to sheet rows; the id is the index so the row
-  // can be resolved back to the untouched API result on selection.
-  const placeItems: PlaceItem[] = useMemo(
-    () =>
-      (suggestions.data ?? []).map((item, index) => ({
-        id: String(index),
-        title: String(
-          item.address ?? item.description ?? item.label ?? item.name ?? "",
-        ),
-        subtitle:
-          item.description && item.address ? String(item.description) : undefined,
-        kind: "suggestion" as const,
-      })),
-    [suggestions.data],
-  );
   const searchOpen = !!searchTarget;
-  const activeStopIndex = stopIndexOf(searchTarget);
   // Drops the slots the passenger opened but never filled.
   const pruneStops = () =>
     setStops((current) => current.filter((stop) => !!stop));
@@ -682,147 +609,131 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
     setSearch("");
     pruneStops();
   };
-  const hintFor = (target: SearchTarget) =>
-    target === "pickup"
-      ? "home.pickupHint"
-      : stopIndexOf(target) != null
-        ? "home.stopHint"
-        : "home.destinationHint";
+  // ---------------------------------------------------------------------
+  // Derived, NON-hook values. They deliberately live below the `if (!pickup)`
+  // early return: adding a hook here would change the hook order between the
+  // "waiting for location" render and the map render ("Rendered more hooks
+  // than during the previous render").
+  // ---------------------------------------------------------------------
+  // The sheet follows the APP theme, the map keeps Google light/dark.
+  const mapTheme: "light" | "dark" = themeName === "dark" ? "dark" : "light";
+  const sheetSurfaces = sheetSurfacesFor(mapTheme);
+  // ONE sheet, one stage at a time: an active trip wins, then map-pin picking,
+  // then the search, then the ride picker, and finally the idle headline.
+  const sheetStage: SheetStage = trip
+    ? "trip"
+    : pinMode
+      ? "pin"
+      : searchOpen
+        ? "search"
+        : destination
+          ? "ride"
+          : "idle";
+  // Filled stops shown inside the sheet's route rail.
+  const stopRows = stops.flatMap((stop, index) =>
+    stop
+      ? [
+          {
+            key: `stop-${index}`,
+            label: stop.address ?? tr(messages, "home.stop"),
+            onPress: () => {
+              setSearch("");
+              setSearchTarget(stopTarget(index));
+            },
+          },
+        ]
+      : [],
+  );
+  // Gold "+" next to the pickup row: opens a new stop slot for editing.
+  const addStop = () => {
+    if (stops.length >= MAX_STOPS) return;
+    setStops((current) => [...current, null]);
+    setSearch("");
+    setSearchTarget(stopTarget(stops.length));
+  };
+  // "My location": brings the camera back onto the passenger. isFarFromMe
+  // clears itself from onRegionChangeComplete once the animation settles.
+  const locateMe = () => {
+    const point = deviceLocation ?? pickup;
+    map.current?.animateCamera(
+      { center: { latitude: point.lat, longitude: point.lng }, zoom: 16 },
+      { duration: 450 },
+    );
+  };
+  // Sits just ABOVE the collapsed sheet (26% of the screen height) with a
+  // small breathing gap, exactly like the reference screen: bottom-left,
+  // hovering right over the gold card rather than floating mid-map.
+  const locationButtonBottom =
+    Math.round(Dimensions.get("window").height * 0.26) + SPACING.sm;
+  // "My location" is already drawn by the map as a translucent blue disc, so
+  // the gold pin is only worth drawing when the pickup is somewhere ELSE.
+  const showPickupPin =
+    pinMode === "pickup" ||
+    !deviceLocation ||
+    haversineDistance(pickup, deviceLocation) > SAME_PLACE_M;
+
+  // A quote exists only for the class the passenger tapped, so the price is
+  // rendered on that card alone (VehicleType carries no base fare).
+  const priceForVehicle = (vehicle: VehicleType) =>
+    quote && selected?.id === vehicle.id
+      ? `${String(quote.fare ?? quote.total ?? quote.amount ?? "")} ${
+          quote.currency ?? vehicle.resolvedPricing?.currency ?? ""
+        }`.trim()
+      : undefined;
 
   return (
     <View style={styles.root}>
-      <MapView
-        ref={map}
-        style={StyleSheet.absoluteFill}
-        customMapStyle={mapStyle}
-        initialRegion={{
-          latitude: pickup.lat,
-          longitude: pickup.lng,
-          latitudeDelta: 0.035,
-          longitudeDelta: 0.035,
-        }}
+      {/* The map is its own memoised leaf: typing a fare, opening the
+          drawer or moving the sheet no longer re-renders it. */}
+      <RideMap
+        mapRef={map}
+        mapStyle={mapStyle}
+        styles={styles}
+        palette={palette}
+        messages={messages}
+        pickup={pickup}
+        destination={destination}
+        stops={stops}
+        showPickupPin={showPickupPin}
+        pinMode={pinMode}
+        pinDragging={pinDragging}
+        driverVisible={driverVisible}
+        driverCoordinate={driverCoordinate}
+        driverHeading={Number(trip?.heading ?? 0)}
+        driverRideClass={
+          (trip?.rideClass as string | undefined) ?? selected?.rideClass
+        }
+        routePoints={route.data}
         onRegionChange={onRegionChange}
         onRegionChangeComplete={onRegionChangeComplete}
-        showsUserLocation
-        showsMyLocationButton={false}
-        toolbarEnabled={false}
-        /* Full map detail: shops, malls, landmarks, buildings and transit. */
-        showsPointsOfInterest
-        showsBuildings
-        showsIndoors
-        showsTraffic={false}
-      >
-        {/* flaminGO gold pins: person head for the pickup, checkered flag for
-            the drop-off. Identical geometry, gold speech bubble on top. */}
-        <Marker
-          coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-          anchor={{ x: 0.5, y: 1 }}
-          tracksViewChanges={false}
-        >
-          <PickupPin label={tr(messages, "home.pickupHere")} state="snapped" />
-        </Marker>
-        {destination ? (
-          <Marker
-            coordinate={{
-              latitude: destination.lat,
-              longitude: destination.lng,
-            }}
-            anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={false}
-          >
-            <DropoffPin
-              label={tr(messages, "home.dropoffHere")}
-              state="snapped"
-            />
-          </Marker>
-        ) : null}
-        {stops.map((stop, index) =>
-          stop ? (
-            <Marker
-              key={`stop-marker-${index}`}
-              coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
-            >
-              <View style={styles.stopMarker}>
-                <View style={styles.stopMarkerCore} />
-              </View>
-            </Marker>
-          ) : null,
-        )}
-        {driverVisible ? (
-          <Marker.Animated
-            coordinate={driverCoordinate as unknown as LatLng}
-            rotation={Number(trip?.heading ?? 0)}
-            anchor={{ x: 0.5, y: 0.5 }}
-            flat
-            tracksViewChanges={false}
-          >
-            <Image
-              source={markerForClass(
-                (trip?.rideClass as string | undefined) ?? selected?.rideClass,
-              )}
-              style={styles.vehicleMarker}
-              resizeMode="contain"
-            />
-          </Marker.Animated>
-        ) : null}
-        {/* Route: dimmed while a pin is dragged, redrawn right after it lands. */}
-        {route.data?.length ? (
-          <>
-            {/* Grey base stroke, gold top stroke, then a soft light that
-                slides from the pickup to the destination. */}
-            <Polyline
-              coordinates={route.data}
-              strokeColor={withAlpha(palette.routeBase, pinDragging ? 0.12 : 0.45)}
-              strokeWidth={14}
-              lineCap="round"
-              lineJoin="round"
-            />
-            <Polyline
-              coordinates={route.data}
-              strokeColor={withAlpha(palette.routeBase, pinDragging ? 0.25 : 1)}
-              strokeWidth={9}
-              lineCap="round"
-              lineJoin="round"
-            />
-            <Polyline
-              coordinates={route.data}
-              strokeColor={withAlpha(palette.accent, pinDragging ? 0.25 : 1)}
-              strokeWidth={5}
-              lineCap="round"
-              lineJoin="round"
-            />
-            <RouteComet
-              points={route.data}
-              accent={palette.accent}
-              glow={palette.routeGlow}
-              paused={pinDragging}
-            />
-          </>
-        ) : null}
-      </MapView>
+      />
 
-      {/* Floating controls: they disappear while the sheet is expanded. */}
+      {/* Top-RIGHT: the ONLY control at the top. Circular, white by day and
+          black by night, with a gold hamburger. Offset from the real safe
+          area so it never touches the status bar or the screen edge. */}
       <MapFloatingButton
-        mapTheme={themeName === "dark" ? "dark" : "light"}
+        mapTheme={mapTheme}
         hidden={sheetOpen}
-        side="start"
-        top={54}
+        side="end"
+        top={insets.top + SPACING.md}
         accessibilityLabel={tr(messages, "menu.title")}
         onPress={() => setDrawerOpen(true)}
       >
-        <MenuIcon size={22} color={palette.text} />
+        <MenuIcon size={22} color={brand.gold} />
       </MapFloatingButton>
+
+      {/* Bottom-right: the "recentre on me" button. Same surface as the menu
+          button (no solid gold), and only present once the camera has drifted
+          away from the passenger. */}
       <MapFloatingButton
-        mapTheme={themeName === "dark" ? "dark" : "light"}
-        hidden={sheetOpen}
-        side="end"
-        top={54}
-        accessibilityLabel={tr(messages, "theme.title")}
-        onPress={() => setMode(nextMode(themeName))}
+        mapTheme={mapTheme}
+        hidden={sheetOpen || !isFarFromMe}
+        side="start"
+        bottom={locationButtonBottom}
+        accessibilityLabel={tr(messages, "destination.current")}
+        onPress={locateMe}
       >
-        {themeName === "dark" ? <SunIcon size={22} /> : <MoonIcon size={22} />}
+        <TargetIcon size={22} color={brand.gold} />
       </MapFloatingButton>
 
       {/* "Press back again to exit" hint. */}
@@ -857,85 +768,94 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         </View>
       ) : null}
 
-      {/* Heetch-style sheet: collapsed it only shows the headline + search
-          field, tapping it expands the SAME sheet, and pickup/destination are
-          chosen inside it. Never a separate screen. */}
-      {!trip && !pinMode ? (
-        <DestinationSheet
-          mapTheme={themeName === "dark" ? "dark" : "light"}
-          query={search}
-          onChangeQuery={setSearch}
-          searching={suggestions.isFetching}
-          suggestions={placeItems}
-          pickupLabel={pickup.address ?? ""}
-          destinationLabel={destination?.address ?? ""}
-          activeTarget={searchTarget === "pickup" ? "pickup" : "destination"}
-          onChangeTarget={(target) => setSearchTarget(target)}
-          onSelectPlace={(item: PlaceItem) => {
-            const source = (suggestions.data ?? [])[Number(item.id)];
-            if (source) void choosePlace(source);
-          }}
-          onUseCurrentLocation={() => void useDeviceLocation()}
-          onSetOnMap={() => {
-            setPinMode(searchTarget ?? "destination");
-            closeSearch();
-          }}
-          onSnapChange={(index) => setSheetOpen(index > 0)}
-          copy={{
-            title: tr(messages, "destination.title"),
-            searchPlaceholder: tr(messages, "destination.search"),
-            pickupPlaceholder: tr(messages, "destination.pickup"),
-            destinationPlaceholder: tr(messages, "destination.dropoff"),
-            currentLocation: tr(messages, "destination.current"),
-            setOnMap: tr(messages, "destination.setOnMap"),
-            favorites: tr(messages, "destination.favorites"),
-            recent: tr(messages, "destination.recent"),
-            noResults: tr(messages, "destination.noResults"),
-          }}
-        />
-      ) : null}
-
-      {pinMode && !trip ? (
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(160)}
-          style={styles.bottomSheet}
-        >
-          <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>
-            {tr(
-              messages,
-              pinMode === "pickup" ? "home.choosePickup" : "home.chooseDestination",
-            )}
-          </Text>
-          <Text numberOfLines={2} style={styles.locationText}>
-            {pinAddress || tr(messages, "home.dragMap")}
-          </Text>
-          <Pressable onPress={confirmPin} style={styles.primaryButton}>
-            <Text style={styles.buttonTextLight}>
-              {tr(messages, "home.confirmPoint")}
+      {/* ── THE single bottom sheet ──────────────────────────────────
+          One instance for the whole journey: idle → search → ride → trip,
+          plus the map-pin confirmation. No sheet is ever stacked on another;
+          only the content and the height of THIS sheet change. */}
+      <DestinationSheet
+        mode={mapTheme}
+        stage={sheetStage}
+        onRequestSearch={() => {
+          setSearch("");
+          setSearchTarget(searchTarget ?? "destination");
+        }}
+        onCloseSearch={closeSearch}
+        query={search}
+        onChangeQuery={setSearch}
+        searching={suggestions.isFetching}
+        suggestions={placeItems}
+        pickupLabel={pickup.address ?? tr(messages, "home.currentLocation")}
+        destinationLabel={destination?.address ?? ""}
+        activeTarget={searchTarget === "pickup" ? "pickup" : "destination"}
+        onChangeTarget={(target) => {
+          setSearch("");
+          setSearchTarget(target);
+        }}
+        onSelectPlace={(item: PlaceItem) => {
+          const source = (suggestions.data ?? [])[Number(item.id)];
+          if (source) void choosePlace(source);
+        }}
+        onUseCurrentLocation={() => void applyDeviceLocation()}
+        onSetOnMap={() => {
+          setPinMode(searchTarget ?? "destination");
+          closeSearch();
+        }}
+        onAddStop={stops.length < MAX_STOPS ? addStop : undefined}
+        stops={stopRows}
+        routeReady={!!pickup && !!destination}
+        onSnapChange={(index) => setSheetOpen(index > 0)}
+      >
+        {sheetStage === "pin" ? (
+          <View style={styles.sheetBody}>
+            <Text style={styles.sheetTitle}>
+              {tr(
+                messages,
+                pinMode === "pickup"
+                  ? "home.choosePickup"
+                  : "home.chooseDestination",
+              )}
             </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              setPinMode(null);
-              setPinAddress("");
-            }}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.buttonTextDark}>{tr(messages, "common.cancel")}</Text>
-          </Pressable>
-        </Animated.View>
-      ) : null}
-
-      {!trip && !searchOpen && !pinMode ? (
-        <Animated.View
-          entering={SlideInDown.springify().damping(21)}
-          exiting={SlideOutDown.duration(180)}
-          style={styles.bottomSheet}
-        >
-          <View style={styles.handle} />
-          {negotiation ? (
+            <Text numberOfLines={2} style={styles.locationText}>
+              {pinAddress || tr(messages, "home.dragMap")}
+            </Text>
+            <View style={styles.ctaWrap}>
+              <GoldButton
+                label={tr(messages, "home.confirmPoint")}
+                onPress={confirmPin}
+              />
+            </View>
+            <Pressable
+              onPress={() => {
+                setPinMode(null);
+                setPinAddress("");
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.buttonTextDark}>
+                {tr(messages, "common.cancel")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : sheetStage === "trip" && trip ? (
+          <TripPanel
+            styles={styles}
+            palette={palette}
+            trip={trip}
+            messages={messages}
+            payment={payment}
+            cancelPending={cancelMutation.isPending}
+            onCancel={confirmCancel}
+            failure={matchFailure}
+            retryPending={retryMatchMutation.isPending}
+            onRetry={() => retryMatchMutation.mutate()}
+            onCommunicate={() =>
+              navigation.navigate("TripCommunication", { tripId: trip.id })
+            }
+            onSos={confirmSos}
+            onClose={resetRide}
+          />
+        ) : sheetStage === "ride" && destination ? (
+          negotiation ? (
             <NegotiationPanel
               styles={styles}
               messages={messages}
@@ -974,221 +894,151 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
               }}
             />
           ) : (
-            <>
-              {!destination ? (
-                /* Collapsed Heetch box: one tap opens the full route editor. */
-                <PressScale
-                  accessibilityLabel={tr(messages, "home.enterDestination")}
-                  onPress={() => {
-                    setSearch("");
-                    setSearchTarget("destination");
-                  }}
-                  style={styles.collapsedSearch}
-                >
-                  <Text style={styles.collapsedTitle}>
-                    {tr(messages, "home.whereTo")}
-                  </Text>
-                  <View style={styles.collapsedField}>
-                    <View style={styles.searchIcon}>
-                      <Text style={styles.searchIconText}>{"\u25C9"}</Text>
-                    </View>
-                    <Text style={styles.collapsedFieldText}>
-                      {tr(messages, "home.enterDestination")}
+            <View style={styles.sheetBody}>
+              {/* Visible way back: the hardware button is not the only exit. */}
+              <Pressable
+                onPress={resetRide}
+                hitSlop={12}
+                style={styles.backButton}
+                {...a11yButton(tr(messages, "common.back"))}
+              >
+                <ChevronIcon size={22} color={brand.gold} direction="right" />
+              </Pressable>
+              {/* Pickup / stops / destination, then the ride picker. */}
+              <RouteRows
+                surfaces={sheetSurfaces}
+                pickupLabel={
+                  pickup.address ?? tr(messages, "home.currentLocation")
+                }
+                pickupPlaceholder={tr(messages, "destination.pickup")}
+                destinationLabel={destination.address ?? ""}
+                destinationPlaceholder={tr(messages, "destination.dropoff")}
+                onPressPickup={() => {
+                  setSearch("");
+                  setSearchTarget("pickup");
+                }}
+                onPressDestination={() => {
+                  setSearch("");
+                  setSearchTarget("destination");
+                }}
+                onAddStop={stops.length < MAX_STOPS ? addStop : undefined}
+                addStopLabel={tr(messages, "destination.addStop")}
+                stops={stopRows}
+              />
+              <Text style={styles.sheetTitle}>
+                {tr(messages, "home.chooseRide")}
+              </Text>
+              {/* A plain ScrollView nested in a bottom sheet loses its touches
+                  to the sheet's gesture handler: the cards become dead. The
+                  sheet's own scroll view is the only one that cooperates. */}
+              <BottomSheetScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.vehicleList}
+              >
+                {vehicles.map((vehicle) => (
+                  <VehicleCard
+                    key={vehicle.id}
+                    styles={styles}
+                    vehicle={vehicle}
+                    locale={locale}
+                    selected={selected?.id === vehicle.id}
+                    revision={assetRevision}
+                    messages={messages}
+                    price={priceForVehicle(vehicle)}
+                    badge={
+                      fastestVehicleId(vehicles) === vehicle.id
+                        ? tr(messages, "home.fastest")
+                        : undefined
+                    }
+                    onPress={() => quoteMutation.mutate(vehicle)}
+                  />
+                ))}
+              </BottomSheetScrollView>
+              {!vehicles.length ? (
+                <Text style={styles.muted}>
+                  {tr(messages, "home.noVehicles")}
+                </Text>
+              ) : null}
+              {quoteMutation.isPending ? (
+                <ActivityIndicator color={palette.text} />
+              ) : null}
+              {quote && selected ? (
+                <Animated.View entering={FadeIn.duration(220)}>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.muted}>
+                      {tr(messages, "home.price")}
+                    </Text>
+                    <Text style={styles.price}>
+                      {String(quote.fare ?? quote.total ?? quote.amount ?? "")}{" "}
+                      {quote.currency ??
+                        selected.resolvedPricing?.currency ??
+                        ""}
                     </Text>
                   </View>
-                </PressScale>
-              ) : (
-                <>
-                  {/* Full route: pickup, optional stops, destination. */}
-                  <Pressable
-                    onPress={() => {
-                      setSearch("");
-                      setSearchTarget("pickup");
-                    }}
-                    style={styles.locationRow}
-                  >
-                    <View style={styles.routeDot} />
-                    <View style={styles.flex}>
-                      <Text style={styles.label}>
-                        {tr(messages, "home.pickup")}
+                  <View style={styles.metaRow}>
+                    {selected.etaMinutes != null ? (
+                      <Text style={styles.meta}>
+                        {selected.etaMinutes} {tr(messages, "home.eta")}
                       </Text>
-                      <Text numberOfLines={1} style={styles.locationText}>
-                        {pickup.address ?? tr(messages, "home.currentLocation")}
+                    ) : null}
+                    {selected.capacity ? (
+                      <Text style={styles.meta}>
+                        {selected.capacity} {tr(messages, "home.capacity")}
                       </Text>
-                    </View>
-                    <Text style={styles.editIcon}>{"\u270E"}</Text>
-                  </Pressable>
-                  {stops.map((stop, index) =>
-                    stop ? (
-                      <Pressable
-                        key={`stop-row-${index}`}
-                        onPress={() => {
-                          setSearch("");
-                          setSearchTarget(stopTarget(index));
-                        }}
-                        style={styles.locationRow}
-                      >
-                        <View style={styles.routeStopDot} />
-                        <View style={styles.flex}>
-                          <Text style={styles.label}>
-                            {tr(messages, "home.stop")}
-                          </Text>
-                          <Text numberOfLines={1} style={styles.locationText}>
-                            {stop.address ?? tr(messages, "home.stop")}
-                          </Text>
-                        </View>
-                        <Text style={styles.editIcon}>{"\u270E"}</Text>
-                      </Pressable>
-                    ) : null,
-                  )}
-                  <View style={styles.divider} />
-                  <Pressable
-                    onPress={() => {
-                      setSearch("");
-                      setSearchTarget("destination");
-                    }}
-                    style={styles.locationRow}
-                  >
-                    <View style={styles.routeSquare} />
-                    <View style={styles.flex}>
-                      <Text style={styles.label}>
-                        {tr(messages, "home.destination")}
-                      </Text>
-                      <Text numberOfLines={1} style={styles.locationText}>
-                        {destination.address ??
-                          tr(messages, "home.destinationHint")}
-                      </Text>
-                    </View>
-                    <Text style={styles.editIcon}>{"\u270E"}</Text>
-                  </Pressable>
-                  <Text style={styles.sheetTitle}>
-                    {tr(messages, "home.chooseRide")}
-                  </Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.vehicleList}
-                  >
-                    {vehicles.map((vehicle) => (
-                      <VehicleCard
-                        key={vehicle.id}
-                        styles={styles}
-                        vehicle={vehicle}
-                        locale={profile?.locale ?? "ar"}
-                        selected={selected?.id === vehicle.id}
-                        revision={assetRevision}
-                        messages={messages}
-                        badge={
-                          fastestVehicleId(vehicles) === vehicle.id
-                            ? tr(messages, "home.fastest")
-                            : undefined
-                        }
-                        onPress={() => quoteMutation.mutate(vehicle)}
-                      />
-                    ))}
-                  </ScrollView>
-                  {!vehicles.length ? (
-                    <Text style={styles.muted}>
-                      {tr(messages, "home.noVehicles")}
-                    </Text>
-                  ) : null}
-                  {quoteMutation.isPending ? (
-                    <ActivityIndicator color={palette.text} />
-                  ) : null}
-                  {quote && selected ? (
-                    <Animated.View entering={FadeIn.duration(220)}>
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.muted}>
-                          {tr(messages, "home.price")}
-                        </Text>
-                        <Text style={styles.price}>
-                          {String(quote.fare ?? quote.total ?? quote.amount ?? "")}{" "}
-                          {quote.currency ??
-                            selected.resolvedPricing?.currency ??
-                            ""}
-                        </Text>
-                      </View>
-                      <View style={styles.metaRow}>
-                        {selected.etaMinutes != null ? (
-                          <Text style={styles.meta}>
-                            {selected.etaMinutes} {tr(messages, "home.eta")}
-                          </Text>
-                        ) : null}
-                        {selected.capacity ? (
-                          <Text style={styles.meta}>
-                            {selected.capacity} {tr(messages, "home.capacity")}
-                          </Text>
-                        ) : null}
-                      </View>
-                      <View style={styles.paymentRow}>
-                        {(paymentMethods.data ?? [])
-                          .filter(
-                            (item) =>
-                              item.method !== "WALLET" || selected.supportsWallet,
-                          )
-                          .map((item) => (
-                            <Pressable
-                              key={`${item.method}:${item.provider ?? ""}`}
-                              onPress={() => setPayment(item.method)}
-                              style={[
-                                styles.chip,
-                                payment === item.method && styles.chipActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.chipText,
-                                  payment === item.method && styles.chipTextActive,
-                                ]}
-                              >
-                                {tr(messages, item.labelKey)}
-                              </Text>
-                            </Pressable>
-                          ))}
-                      </View>
-                      <View style={styles.ctaWrap}>
-                        <GoldButton
-                          label={tr(messages, "home.requestRide")}
-                          loading={requestMutation.isPending}
-                          disabled={!payment}
-                          onPress={() => requestMutation.mutate()}
-                        />
-                      </View>
-                      {selected.allowsNegotiation ? (
+                    ) : null}
+                  </View>
+                  <View style={styles.paymentRow}>
+                    {(paymentMethods.data ?? [])
+                      .filter(
+                        (item) =>
+                          item.method !== "WALLET" || selected.supportsWallet,
+                      )
+                      .map((item) => (
                         <Pressable
-                          onPress={() => void startNegotiation()}
-                          style={styles.secondaryButton}
+                          key={`${item.method}:${item.provider ?? ""}`}
+                          onPress={() => setPayment(item.method)}
+                          style={[
+                            styles.chip,
+                            payment === item.method && styles.chipActive,
+                          ]}
                         >
-                          <Text style={styles.buttonTextDark}>
-                            {tr(messages, "home.negotiate")}
+                          <Text
+                            style={[
+                              styles.chipText,
+                              payment === item.method && styles.chipTextActive,
+                            ]}
+                          >
+                            {tr(messages, item.labelKey)}
                           </Text>
                         </Pressable>
-                      ) : null}
-                    </Animated.View>
+                      ))}
+                  </View>
+                  {/* Wide, gold, large-cornered request button. */}
+                  <View style={styles.ctaWrap}>
+                    <GoldButton
+                      label={tr(messages, "home.requestRide")}
+                      loading={requestMutation.isPending}
+                      disabled={!payment}
+                      onPress={() => requestMutation.mutate()}
+                    />
+                  </View>
+                  {selected.allowsNegotiation ? (
+                    <Pressable
+                      onPress={() => void startNegotiation()}
+                      style={styles.secondaryButton}
+                    >
+                      <Text style={styles.buttonTextDark}>
+                        {tr(messages, "home.negotiate")}
+                      </Text>
+                    </Pressable>
                   ) : null}
-                </>
-              )}
-            </>
-          )}
-        </Animated.View>
-      ) : null}
-
-      {trip ? (
-        <TripPanel
-          styles={styles}
-          palette={palette}
-          trip={trip}
-          messages={messages}
-          payment={payment}
-          cancelPending={cancelMutation.isPending}
-          onCancel={confirmCancel}
-          failure={matchFailure}
-          retryPending={retryMatchMutation.isPending}
-          onRetry={() => retryMatchMutation.mutate()}
-          onCommunicate={() => navigation.navigate("TripCommunication", { tripId: trip.id })}
-          onClose={resetRide}
-        />
-      ) : null}
+                </Animated.View>
+              ) : null}
+            </View>
+          )
+        ) : null}
+      </DestinationSheet>
 
       {/* flaminGO drawer: profile card, five entries, languages + theme. */}
       <SideDrawer
@@ -1197,9 +1047,12 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
         mapTheme={themeName === "dark" ? "dark" : "light"}
         userName={profile?.name ?? ""}
         avatarUrl={profile?.avatarUrl}
-        tripCount={Number(profile?.tripCount ?? 0)}
+        frameUrl={profile?.profileFrameUrl}
+        tripCount={Number(
+          profile?.completedTripsCount ?? profile?.tripCount ?? 0,
+        )}
         rating={Number(profile?.rating ?? 0)}
-        activeLocale={(profile?.locale as "ar" | "fr" | "en") ?? "ar"}
+        activeLocale={locale as "ar" | "fr" | "en"}
         onSelect={(key: DrawerMenuKey) => {
           setDrawerOpen(false);
           if (key === "account") navigation.navigate("Profile");
@@ -1208,18 +1061,14 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           else if (key === "coupons") navigation.navigate("Coupons");
           else navigation.navigate("Support");
         }}
-        onChangeAvatar={() => {
-          void pickImageFromLibrary(messages).then((uri) => {
-            if (!uri) return;
-            return passengerServicesApi
-              .updateProfile({ avatarUrl: uri })
-              .then((updated) => useSession.setState({ profile: updated }))
-              .catch((error) => reportError(error, "drawer.avatar"));
-          });
-        }}
-        onChangeLocale={(locale) => {
+        onChangeLocale={(next) => {
+          // 1. Local, persisted, instant: this is what actually changes the UI
+          //    language and survives a cold start (MMKV).
+          void useLocaleStore.getState().setLocale(next);
+          // 2. Best effort: keep the server profile in sync. A failure here
+          //    must never undo the switch the passenger just made.
           void passengerServicesApi
-            .updateProfile({ locale })
+            .updateProfile({ locale: next })
             .then((updated) => useSession.setState({ profile: updated }))
             .catch((error) => reportError(error, "drawer.locale"));
         }}
@@ -1231,7 +1080,6 @@ export function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParam
           coupons: tr(messages, "drawer.coupons"),
           help: tr(messages, "drawer.help"),
         }}
-        tripWord={tr(messages, "trips.singular")}
       />
     </View>
   );
@@ -1245,12 +1093,11 @@ function fastestVehicleId(vehicles: VehicleType[]): string | null {
   let best: VehicleType | null = null;
   for (const vehicle of vehicles) {
     if (vehicle.etaMinutes == null) continue;
-    if (!best || vehicle.etaMinutes < (best.etaMinutes ?? Infinity)) best = vehicle;
+    if (!best || vehicle.etaMinutes < (best.etaMinutes ?? Infinity))
+      best = vehicle;
   }
   return best?.id ?? null;
 }
-
-
 
 function VehicleCardBase({
   styles,
@@ -1260,6 +1107,7 @@ function VehicleCardBase({
   revision,
   messages,
   badge,
+  price,
   onPress,
 }: {
   styles: Styles;
@@ -1269,6 +1117,8 @@ function VehicleCardBase({
   revision: number;
   messages: Record<string, string>;
   badge?: string;
+  /** Quote for this class, when the passenger already picked it. */
+  price?: string;
   onPress: () => void;
 }) {
   const key = vehicle.imageAssetKey;
@@ -1278,7 +1128,9 @@ function VehicleCardBase({
       {...a11yButton(
         [
           vehicle.nameI18n?.[locale] ?? vehicle.name,
-          vehicle.capacity ? `${vehicle.capacity} ${tr(messages, "home.capacity")}` : "",
+          vehicle.capacity
+            ? `${vehicle.capacity} ${tr(messages, "home.capacity")}`
+            : "",
           vehicle.etaMinutes != null
             ? `${vehicle.etaMinutes} ${tr(messages, "home.eta")}`
             : "",
@@ -1310,6 +1162,7 @@ function VehicleCardBase({
       <Text numberOfLines={1} style={styles.vehicleName}>
         {vehicle.nameI18n?.[locale] ?? vehicle.name}
       </Text>
+      {price ? <Text style={styles.vehiclePrice}>{price}</Text> : null}
       <View style={styles.vehicleMetaRow}>
         {vehicle.capacity ? (
           <Text style={styles.vehicleEta}>
@@ -1340,11 +1193,11 @@ const VehicleCard = React.memo(
     prev.selected === next.selected &&
     prev.revision === next.revision &&
     prev.badge === next.badge &&
+    prev.price === next.price &&
     prev.locale === next.locale &&
     prev.messages === next.messages &&
     prev.styles === next.styles,
 );
-
 
 // Every colour below comes from the active palette — no literal hex values.
 function makeStyles(palette: Palette, themeName: "light" | "dark") {
@@ -1359,6 +1212,17 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       gap: 14,
     },
     flex: { flex: 1 },
+    /* Stage content inside the ONE sheet: no surface, no radius, no shadow. */
+    sheetBody: { gap: SPACING.md, paddingTop: SPACING.xs },
+    /* Back chevron on the reading-exit side of a stage header. */
+    backButton: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      alignSelf: "flex-start",
+      marginBottom: -SPACING.xs,
+    },
     // --- flaminGO map pin overlay -----------------------------------------
     pinWrap: {
       position: "absolute",
@@ -1369,16 +1233,6 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       zIndex: 10,
       transform: [{ translateY: -PIN_HEIGHT }],
     },
-    locationRow: {
-      minHeight: 58,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-    },
-    dot: { width: 10, height: 10, borderRadius: 5 },
-    diamond: { width: 10, height: 10, transform: [{ rotate: "45deg" }] },
-    editIcon: { color: palette.textMuted, fontSize: 16 },
-    divider: { height: 1, backgroundColor: palette.border, marginLeft: 22 },
     label: { fontSize: 12, fontWeight: "700", color: palette.textMuted },
     locationText: {
       fontSize: 16,
@@ -1387,190 +1241,26 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       marginTop: 2,
     },
     muted: { fontSize: 14, color: palette.textMuted, lineHeight: 20 },
-    quickRow: {
-      minHeight: 56,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-    },
-    quickIcon: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
-      backgroundColor: palette.surfaceAlt,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    quickIconText: { color: palette.textMuted, fontSize: 16 },
-    suggestionList: { flex: 1, minHeight: 180 },
-    routeEditor: {
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: palette.border,
-      backgroundColor: palette.surfaceAlt,
-      paddingHorizontal: 14,
-      marginTop: 14,
-    },
-    routeField: {
-      minHeight: 62,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: palette.border,
-    },
-    routeFieldActive: { borderBottomColor: palette.primary },
-    routeInput: {
-      height: 34,
-      padding: 0,
-      fontSize: 16,
-      fontWeight: "700",
-      color: palette.text,
-    },
-    routeDot: {
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-      backgroundColor: palette.primary,
-    },
-    routeStopDot: {
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      borderWidth: 2,
-      borderColor: palette.primary,
-      marginLeft: 1,
-    },
-    routeSquare: {
-      width: 12,
-      height: 12,
-      borderRadius: 2,
-      backgroundColor: palette.primary,
-    },
-    routeRemove: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: palette.surface,
-    },
-    addStop: {
-      marginTop: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-    },
-    addStopIcon: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      textAlign: "center",
-      lineHeight: 30,
-      fontSize: 15,
-      color: palette.onPrimary,
-      backgroundColor: palette.primary,
-      overflow: "hidden",
-    },
-    addStopText: { fontSize: 15, fontWeight: "700", color: palette.text },
-    collapsedSearch: { paddingTop: 2 },
-    collapsedTitle: {
-      ...TYPE.title,
-      color: palette.text,
-      marginBottom: SPACING.md,
-    },
-    collapsedField: {
-      minHeight: 64,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: SPACING.md,
-      paddingHorizontal: SPACING.md,
-      borderRadius: RADIUS.pill,
-      borderWidth: 1,
-      borderColor: withAlpha(palette.border, 0.9),
-      backgroundColor: palette.surfaceAlt,
-      ...SHADOW.card,
-    },
-    searchIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: RADIUS.pill,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: withAlpha(palette.accent, 0.16),
-    },
-    searchIconText: {
-      fontSize: 17,
-      lineHeight: 20,
-      fontWeight: "900",
-      color: palette.accent,
-    },
-    collapsedFieldText: {
-      fontSize: 17,
-      fontWeight: "700",
-      color: palette.textMuted,
-    },
     stopMarker: {
       width: 22,
       height: 22,
       borderRadius: 11,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: "#111111",
+      backgroundColor: brand.ink,
       borderWidth: 3,
-      borderColor: "#D4AF37",
+      borderColor: brand.gold,
     },
     stopMarkerCore: {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "#D4AF37",
-    },
-    bottomSheet: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-      maxHeight: "74%",
-      backgroundColor: palette.surface,
-      paddingHorizontal: SPACING.xl,
-      paddingTop: SPACING.md,
-      paddingBottom: SPACING.xxl,
-      borderTopLeftRadius: RADIUS.sheet,
-      borderTopRightRadius: RADIUS.sheet,
-      borderTopWidth: 1,
-      borderColor: withAlpha(palette.border, 0.7),
-      ...SHADOW.sheet,
-    },
-    handle: {
-      alignSelf: "center",
-      width: 48,
-      height: 5,
-      borderRadius: RADIUS.pill,
-      backgroundColor: withAlpha(palette.textMuted, 0.35),
-      marginBottom: SPACING.lg,
+      backgroundColor: brand.gold,
     },
     sheetTitle: {
       ...TYPE.title,
       color: palette.text,
       marginBottom: SPACING.xs,
-    },
-    searchInput: {
-      height: 60,
-      borderRadius: RADIUS.pill,
-      backgroundColor: palette.surfaceAlt,
-      borderWidth: 1,
-      borderColor: withAlpha(palette.border, 0.9),
-      paddingHorizontal: SPACING.xl,
-      fontSize: 17,
-      color: palette.text,
-      marginVertical: SPACING.lg,
-    },
-    suggestion: {
-      minHeight: 64,
-      justifyContent: "center",
-      borderBottomWidth: 1,
-      borderBottomColor: palette.border,
     },
     vehicleList: { gap: 10, paddingVertical: 14 },
     vehicleCard: {
@@ -1583,26 +1273,26 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       padding: 10,
       backgroundColor: palette.surface,
     },
+    /* Selected ride card: gold border (NovaRide identity). */
     vehicleSelected: {
       borderWidth: 2,
-      borderColor: palette.primary,
+      borderColor: palette.accent,
       backgroundColor: palette.surfaceAlt,
     },
     vehicleImage: { width: "100%", height: 72 },
-    vehicleImageFallback: {
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: palette.surfaceAlt,
-      borderRadius: 10,
-    },
-    vehicleImageFallbackText: {
-      fontSize: 12,
-      color: palette.textMuted,
-      fontWeight: "700",
-    },
     vehicleName: { fontSize: 16, fontWeight: "800", color: palette.text },
+    vehiclePrice: {
+      fontSize: 14,
+      fontWeight: "800",
+      color: palette.accent,
+      marginTop: 2,
+    },
     vehicleEta: { fontSize: 12, color: palette.textMuted, marginTop: 3 },
-    vehicleMetaRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+    vehicleMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: SPACING.sm,
+    },
     vehicleBadge: {
       position: "absolute",
       top: 8,
@@ -1623,7 +1313,12 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
     price: { fontSize: 21, fontWeight: "900", color: palette.text },
     metaRow: { flexDirection: "row", gap: 12, marginTop: 4 },
     meta: { fontSize: 13, color: palette.textMuted },
-    paymentRow: { flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" },
+    paymentRow: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: 14,
+      flexWrap: "wrap",
+    },
     chip: {
       minHeight: 42,
       paddingHorizontal: 16,
@@ -1633,7 +1328,10 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       alignItems: "center",
       justifyContent: "center",
     },
-    chipActive: { borderColor: palette.primary, backgroundColor: palette.surfaceAlt },
+    chipActive: {
+      borderColor: palette.primary,
+      backgroundColor: palette.surfaceAlt,
+    },
     chipText: { color: palette.text, fontWeight: "700" },
     chipTextActive: { color: palette.text },
     primaryButton: {
@@ -1654,28 +1352,12 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       justifyContent: "center",
       marginTop: 10,
     },
-    buttonTextLight: { fontSize: 16, fontWeight: "800", color: palette.onPrimary },
-    buttonTextDark: { fontSize: 16, fontWeight: "800", color: palette.text },
-    fareInput: {
-      height: 58,
-      borderWidth: 1,
-      borderColor: palette.border,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      fontSize: 24,
+    buttonTextLight: {
+      fontSize: 16,
       fontWeight: "800",
-      color: palette.text,
-      backgroundColor: palette.surfaceAlt,
-      marginTop: 14,
+      color: palette.onPrimary,
     },
-    offerRow: {
-      minHeight: 64,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: palette.border,
-    },
+    buttonTextDark: { fontSize: 16, fontWeight: "800", color: palette.text },
     accept: { fontSize: 13, fontWeight: "800", color: palette.accent },
     offerCard: {
       borderWidth: 1,
@@ -1799,8 +1481,6 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       color: palette.accent,
       letterSpacing: 0.6,
     },
-    timer: { fontSize: 12, fontWeight: "700", color: palette.accent, marginTop: 2 },
-    expired: { fontSize: 12, fontWeight: "700", color: palette.danger, marginTop: 2 },
     pulse: {
       width: 62,
       height: 62,
@@ -1844,6 +1524,19 @@ function makeStyles(palette: Palette, themeName: "light" | "dark") {
       fontWeight: "700",
       color: palette.text,
     },
+    // SOS: outlined in the danger colour rather than filled. A solid red block
+    // next to the ordinary actions invites the accidental tap it must not get.
+    sosButton: {
+      minHeight: 52,
+      borderRadius: 16,
+      backgroundColor: palette.surface,
+      borderWidth: 1.5,
+      borderColor: palette.danger,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 10,
+    },
+    sosText: { fontSize: 16, fontWeight: "900", color: palette.danger },
     disabled: { opacity: 0.35 },
   });
 }

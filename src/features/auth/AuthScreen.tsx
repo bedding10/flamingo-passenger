@@ -30,6 +30,9 @@ import {
   confirmPhone,
   requestPhone,
 } from "./firebase";
+import { Eye, EyeOff } from "lucide-react-native";
+import { loginWithPassword } from "./password-login";
+import { authErrorKey } from "./auth-errors";
 import { useSession } from "../../core/session-store";
 
 // App logo (replaces the removed 3D model). Shown centered on the launch screen.
@@ -42,8 +45,13 @@ const FLAGS: Record<Locale, number> = {
   en: require("../../../assets/flag-en.webp") as number,
 };
 
-type Mode = "entry" | "phone" | "otp";
-type Busy = null | "phone" | "otp";
+// "password" is the daily sign-in (POST /auth/login). "phone"/"otp" stay the
+// Firebase route: first registration, recovery and security checks.
+type Mode = "entry" | "password" | "phone" | "otp";
+type Busy = null | "password" | "phone" | "otp";
+
+// Mirrors the server minimum (RegisterDto / UpdatePassengerProfileDto).
+const MIN_PASSWORD = 6;
 type Styles = ReturnType<typeof makeStyles>;
 
 export function AuthScreen() {
@@ -54,6 +62,8 @@ export function AuthScreen() {
   const s = useMemo(() => makeStyles(palette), [palette]);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<Mode>("entry");
   const [confirmation, setConfirmation] =
     useState<FirebaseAuthTypes.ConfirmationResult | null>(null);
@@ -73,7 +83,10 @@ export function AuthScreen() {
       void fn()
         .catch((e: unknown) => {
           reportError(e, `auth.${kind}`);
-          setError(tr(messages, "common.error"));
+          // The server tells us exactly what went wrong (INVALID_CREDENTIALS,
+          // ACCOUNT_INACTIVE, RATE_LIMITED…) and so does Firebase; show that
+          // instead of one anonymous "something went wrong".
+          setError(tr(messages, authErrorKey(e)));
         })
         .finally(() => setBusy(null));
     };
@@ -143,14 +156,63 @@ export function AuthScreen() {
               <PrimaryButton
                 styles={s}
                 palette={palette}
-                label={tr(messages, "auth.continuePhone")}
+                label={tr(messages, "auth.signIn")}
                 disabled={!!busy}
+                onPress={() => {
+                  setError(null);
+                  setPassword("");
+                  setMode("password");
+                }}
+              />
+              <GhostButton
+                styles={s}
+                label={tr(messages, "auth.continuePhone")}
                 onPress={() => {
                   setError(null);
                   setMode("phone");
                 }}
               />
               <Text style={s.legal}>{tr(messages, "auth.legalHint")}</Text>
+            </Animated.View>
+          ) : mode === "password" ? (
+            <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
+              <PhoneField
+                styles={s}
+                palette={palette}
+                value={phone}
+                onChangeText={setPhone}
+                placeholder={tr(messages, "auth.phone")}
+              />
+              <PasswordField
+                styles={s}
+                palette={palette}
+                value={password}
+                onChangeText={setPassword}
+                placeholder={tr(messages, "auth.password")}
+                visible={showPassword}
+                onToggle={() => setShowPassword((value) => !value)}
+                toggleLabel={tr(messages, "password.toggle")}
+              />
+              <PrimaryButton
+                styles={s}
+                palette={palette}
+                label={tr(messages, "auth.signIn")}
+                loading={busy === "password"}
+                disabled={!!busy || password.length < MIN_PASSWORD}
+                onPress={guard("password", async () => {
+                  await accept(await loginWithPassword(phone, password));
+                })}
+              />
+              {/* No password yet, or forgotten: the SMS route still works. */}
+              <GhostButton
+                styles={s}
+                label={tr(messages, "auth.useSms")}
+                onPress={() => {
+                  setError(null);
+                  setPassword("");
+                  setMode("phone");
+                }}
+              />
             </Animated.View>
           ) : mode === "phone" ? (
             <Animated.View entering={FadeInDown.duration(260)} style={s.gap}>
@@ -256,6 +318,55 @@ function LanguagePicker({ styles }: { styles: Styles }) {
           ))}
         </View>
       ) : null}
+    </View>
+  );
+}
+
+// Password entry: same hairline look as the phone field, plus an eye toggle.
+function PasswordField({
+  styles,
+  palette,
+  value,
+  onChangeText,
+  placeholder,
+  visible,
+  onToggle,
+  toggleLabel,
+}: {
+  styles: Styles;
+  palette: Palette;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  visible: boolean;
+  onToggle: () => void;
+  toggleLabel: string;
+}) {
+  return (
+    <View style={styles.passwordRow}>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={palette.textMuted}
+        secureTextEntry={!visible}
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="password"
+        style={styles.passwordInput}
+      />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={toggleLabel}
+        onPress={onToggle}
+        hitSlop={12}
+      >
+        {visible ? (
+          <EyeOff size={20} color={palette.textMuted} strokeWidth={2} />
+        ) : (
+          <Eye size={20} color={palette.textMuted} strokeWidth={2} />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -477,6 +588,24 @@ function makeStyles(palette: Palette) {
     },
     otpHint: { color: palette.textMuted, fontSize: 14, fontWeight: "600" },
     phoneRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    passwordRow: {
+      height: 56,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: palette.border,
+      backgroundColor: palette.surfaceAlt,
+    },
+    passwordInput: {
+      flex: 1,
+      fontSize: 16,
+      fontWeight: "700",
+      color: palette.text,
+      padding: 0,
+    },
     prefix: {
       height: 56,
       paddingHorizontal: 16,

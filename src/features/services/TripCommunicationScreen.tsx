@@ -66,13 +66,27 @@ export function TripCommunicationScreen({
   });
 
   // Instant delivery: the server broadcasts "trip:message" to the trip room.
+  //
+  // The read receipt travels on the same channel: "trip:messages_read" fires
+  // when the DRIVER opens the thread, and refetching is enough because readAt
+  // now comes down with every message.
   useEffect(() => {
     if (context.data?.canChat !== true) return;
     let dispose: (() => void) | undefined;
     let cancelled = false;
-    void connectTripChat(tripId, () => {
-      void client.invalidateQueries({ queryKey: ["trip-messages", tripId] });
-    }).then((close) => {
+    void connectTripChat(
+      tripId,
+      () => {
+        void client.invalidateQueries({ queryKey: ["trip-messages", tripId] });
+        // A message that lands while this screen is open is read on arrival.
+        void passengerServicesApi
+          .markTripMessagesRead(tripId)
+          .catch(() => undefined);
+      },
+      () => {
+        void client.invalidateQueries({ queryKey: ["trip-messages", tripId] });
+      },
+    ).then((close) => {
       if (cancelled) close();
       else dispose = close;
     });
@@ -81,6 +95,19 @@ export function TripCommunicationScreen({
       dispose?.();
     };
   }, [client, context.data?.canChat, tripId]);
+
+  // Opening the thread is the read receipt.
+  //
+  // Deliberately NOT gated on canChat: a finished trip closes the composer but
+  // the passenger can still read what the driver sent, and a badge that can
+  // never be cleared is worse than no badge. The server allows mark-read on a
+  // completed trip for exactly this reason.
+  useEffect(() => {
+    if (!chat.data) return;
+    void passengerServicesApi
+      .markTripMessagesRead(tripId)
+      .catch(() => undefined);
+  }, [chat.data, tripId]);
 
   const call = async () => {
     const phone = context.data?.phoneNumber;
@@ -160,7 +187,16 @@ export function TripCommunicationScreen({
                       {item.body}
                     </Text>
                     <Text style={mine ? styles.mineTime : styles.theirsTime}>
-                      {day(item.createdAt, locale)}
+                      {day(item.createdAt, locale) +
+                        (mine
+                          ? " \u00b7 " +
+                            tr(
+                              messages,
+                              item.readAt
+                                ? "communication.read"
+                                : "communication.sent",
+                            )
+                          : "")}
                     </Text>
                   </View>
                 );

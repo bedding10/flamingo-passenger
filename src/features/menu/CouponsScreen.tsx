@@ -7,20 +7,20 @@
  * screen only renders what the API answers.
  */
 import React, { useState } from "react"
-import { StyleSheet, Text } from "react-native"
+import { Image, StyleSheet, Text } from "react-native"
 import { useMutation } from "@tanstack/react-query"
 import type { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { passengerServicesApi } from "../../core/passenger-api"
+import { useCouponStore } from "../../core/coupon-store"
 import { tr } from "../../core/i18n"
 import { useMessages } from "../../core/use-messages"
 import { useTheme } from "../../core/theme-store"
 import type { RootStackParamList } from "../../navigation/types"
 import {
-	Card,
-	LabeledInput,
-	MenuScaffold,
-	PrimaryAction,
-	StatusMessage,
+  MenuScaffold,
+  PrimaryAction,
+  StatusMessage,
+  UnderlineField,
 } from "../../components/menu/MenuScaffold"
 import { TicketIcon } from "../../components/icons/Icons"
 import { colors, iconSize, spacing, typography } from "../../design/theme"
@@ -30,78 +30,98 @@ type Props = NativeStackScreenProps<RootStackParamList, "Coupons">
 /**
  * The endpoint validates a code against a fare. Outside a ride there is no
  * fare yet, so we send 0 — exactly what the app already does when it checks a
- * code before a quote exists.
+ * code before a quote exists. The server skips its minimum-fare rule for 0 and
+ * answers with validity only; the binding discount is computed when the ride
+ * is requested.
  */
 const NO_FARE = 0
 
+const ILLUSTRATION = require("../../../assets/illus-promotions.webp")
+
 export function CouponsScreen({ navigation }: Props) {
-	const { messages } = useMessages()
-	const { palette } = useTheme()
-	const [code, setCode] = useState("")
+  const { messages } = useMessages()
+  const { palette } = useTheme()
+  const [code, setCode] = useState("")
 
-	const activate = useMutation({
-		mutationFn: () =>
-			passengerServicesApi.validateCoupon(code.trim().toUpperCase(), NO_FARE),
-	})
+  const setCoupon = useCouponStore((state) => state.setCode)
 
-	const result = activate.data
+  const activate = useMutation({
+    mutationFn: () =>
+      passengerServicesApi.validateCoupon(code.trim().toUpperCase(), NO_FARE),
+    // The server accepted the code, so hold it until a ride carries it.
+    onSuccess: () => setCoupon(code),
+  })
 
-	return (
-		<MenuScaffold
-			title={tr(messages, "coupons.title")}
-			subtitle={tr(messages, "coupons.subtitle")}
-			onBack={() => navigation.goBack()}
-		>
-			<Card>
-				<Text style={[styles.blurb, { color: palette.textMuted }]}>
-					{tr(messages, "coupons.blurb")}
-				</Text>
-			</Card>
+  const result = activate.data
 
-			<LabeledInput
-				label={tr(messages, "coupons.code")}
-				value={code}
-				onChangeText={(text) => {
-					setCode(text)
-					activate.reset()
-				}}
-				placeholder="FLAMINGO2026"
-				autoCapitalize="characters"
-				autoCorrect={false}
-				returnKeyType="done"
-				onSubmitEditing={() => code.trim() && activate.mutate()}
-			/>
+  return (
+    <MenuScaffold
+      title={tr(messages, "coupons.title")}
+      subtitle={tr(messages, "coupons.subtitle")}
+      onBack={() => navigation.goBack()}
+    >
+      <Image
+        source={ILLUSTRATION}
+        style={styles.hero}
+        resizeMode="contain"
+        accessibilityIgnoresInvertColors
+      />
 
-			<PrimaryAction
-				label={tr(messages, "coupons.activate")}
-				onPress={() => activate.mutate()}
-				disabled={code.trim().length < 3}
-				loading={activate.isPending}
-				leading={<TicketIcon size={iconSize.md} color={colors.black} />}
-			/>
+      <Text style={[styles.blurb, { color: palette.textMuted }]}>
+        {tr(messages, "coupons.blurb")}
+      </Text>
 
-			{activate.isError ? (
-				<StatusMessage danger>{tr(messages, "coupons.error")}</StatusMessage>
-			) : null}
+      <UnderlineField
+        leading={<TicketIcon size={iconSize.md} color={colors.gold} />}
+        value={code}
+        onChangeText={(text) => {
+          setCode(text)
+          activate.reset()
+        }}
+        placeholder={tr(messages, "coupons.code")}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        returnKeyType="done"
+        onSubmitEditing={() => code.trim() && activate.mutate()}
+      />
 
-			{result ? (
-				result.valid ? (
-					<StatusMessage>
-						{`${tr(messages, "coupons.success")} ${result.discount} ${result.currency ?? "DZD"}`}
-					</StatusMessage>
-				) : (
-					<StatusMessage danger>{tr(messages, "coupons.expired")}</StatusMessage>
-				)
-			) : null}
-		</MenuScaffold>
-	)
+      <PrimaryAction
+        label={tr(messages, "coupons.activate")}
+        onPress={() => activate.mutate()}
+        disabled={code.trim().length < 3}
+        loading={activate.isPending}
+        leading={<TicketIcon size={iconSize.md} color={colors.black} />}
+      />
+
+      {activate.isError ? (
+        <StatusMessage danger>{tr(messages, "coupons.error")}</StatusMessage>
+      ) : null}
+
+      {/* A resolved response already means the coupon is valid: the endpoint
+          throws for expired, exhausted or out-of-scope codes. Reading a `valid`
+          flag the server never sends made every good coupon look expired. */}
+      {result ? (
+        <StatusMessage>
+          {result.discount > 0
+            ? `${tr(messages, "coupons.success")} ${result.discount} ${result.currency ?? "DZD"}`
+            : tr(messages, "coupons.activated")}
+        </StatusMessage>
+      ) : null}
+    </MenuScaffold>
+  )
 }
 
 const styles = StyleSheet.create({
-	blurb: {
-		...typography.body,
-		marginBottom: spacing.xs,
-	},
+  hero: {
+    width: "100%",
+    height: 150,
+    alignSelf: "center",
+  },
+  blurb: {
+    ...typography.body,
+    textAlign: "center",
+    marginBottom: spacing.xs,
+  },
 })
 
 export default CouponsScreen
