@@ -1,6 +1,7 @@
 import * as Application from "expo-application";
 import { Platform } from "react-native";
 import { api } from "../../core/api";
+import { decodePolyline } from "../../core/polyline";
 import type {
   Catalog,
   FareOffer,
@@ -68,23 +69,13 @@ export const passengerApi = {
       origin: { lat: origin.lat, lng: origin.lng },
       destination: { lat: destination.lat, lng: destination.lng },
     });
-    const raw = data.coordinates ?? data.route?.coordinates ?? [];
-    return (Array.isArray(raw) ? raw : [])
-      .map(
-        (point: {
-          lat?: number;
-          lng?: number;
-          latitude?: number;
-          longitude?: number;
-        }) => ({
-          latitude: Number(point.latitude ?? point.lat),
-          longitude: Number(point.longitude ?? point.lng),
-        }),
-      )
-      .filter(
-        (point: { latitude: number; longitude: number }) =>
-          Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
-      );
+    // الباك اند يرجّع دائماً { polyline: string } (نص مُرمّز، مزوّد google أو
+    // internal على حد سواء) وليس مصفوفة إحداثيات جاهزة — لازم فك تشفيره هنا.
+    const encoded: string = data.polyline ?? data.route?.polyline ?? "";
+    return decodePolyline(encoded).filter(
+      (point) =>
+        Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+    );
   },
   quote: async (
     pickup: Point,
